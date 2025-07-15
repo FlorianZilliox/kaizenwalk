@@ -1,5 +1,40 @@
 console.log('🚀 KaizenWalk starting...');
 
+// Debug functions
+let debugLogs = [];
+let debugVisible = false;
+
+function debugLog(message) {
+    console.log(message);
+    debugLogs.push(new Date().toLocaleTimeString() + ': ' + message);
+    if (debugLogs.length > 20) debugLogs.shift(); // Keep only last 20 logs
+    updateDebugPanel();
+}
+
+function updateDebugPanel() {
+    if (debugContent) {
+        debugContent.innerHTML = debugLogs.join('<br>');
+        debugContent.scrollTop = debugContent.scrollHeight;
+    }
+}
+
+function toggleDebug() {
+    debugVisible = !debugVisible;
+    if (debugVisible) {
+        debugPanel.classList.remove('hidden');
+    } else {
+        debugPanel.classList.add('hidden');
+    }
+}
+
+// Show debug panel automatically on mobile
+function showDebugOnMobile() {
+    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        debugVisible = true;
+        debugPanel.classList.remove('hidden');
+    }
+}
+
 // Variables globales
 let isRunning = false;
 let startTime = null;
@@ -19,14 +54,29 @@ const timeText = document.getElementById('timeText');
 const progressCircle = document.getElementById('progressCircle');
 const startButton = document.getElementById('startButton');
 const permissionModal = document.getElementById('permissionModal');
+const debugPanel = document.getElementById('debugPanel');
+const debugContent = document.getElementById('debugContent');
 
 // Initialisation
 document.addEventListener('DOMContentLoaded', () => {
+    debugLog('📱 DOM loaded, checking permissions...');
+    debugLog('Secure context: ' + window.isSecureContext);
+    debugLog('Notification support: ' + ('Notification' in window));
+    debugLog('Current permission: ' + Notification.permission);
+    debugLog('User agent: ' + navigator.userAgent);
+    
+    showDebugOnMobile();
+    checkSecureContext();
+    
     // Vérifier les permissions
     if (Notification.permission === 'granted') {
         permissionsGranted = true;
+        debugLog('✅ Permissions already granted');
     } else if (Notification.permission === 'default') {
+        debugLog('❓ No permissions yet, showing modal');
         showPermissionModal();
+    } else {
+        debugLog('❌ Permissions denied previously');
     }
     
     // Gestionnaire de bouton
@@ -43,22 +93,58 @@ function hidePermissionModal() {
 }
 
 async function requestPermissions() {
+    debugLog('🔐 Requesting permissions...');
+    debugLog('Current permission state: ' + Notification.permission);
+    
     try {
+        // Vérifier si Notification est supporté
+        if (!('Notification' in window)) {
+            debugLog('❌ Notifications not supported');
+            hidePermissionModal();
+            return;
+        }
+        
         const permission = await Notification.requestPermission();
+        debugLog('Permission result: ' + permission);
+        
         if (permission === 'granted') {
             permissionsGranted = true;
+            debugLog('✅ Permissions granted');
             hidePermissionModal();
+            
+            // Test notification
+            try {
+                new Notification('KaizenWalk Ready! 🎉', {
+                    body: 'Notifications are working!',
+                    icon: '/icon-512x512.png',
+                    tag: 'test'
+                });
+                debugLog('✅ Test notification sent');
+            } catch (e) {
+                debugLog('❌ Test notification failed: ' + e.message);
+            }
         } else {
+            debugLog('❌ Permission denied: ' + permission);
             hidePermissionModal();
         }
     } catch (error) {
-        console.error('Permission request failed:', error);
+        debugLog('❌ Permission request failed: ' + error.message);
         hidePermissionModal();
     }
 }
 
 function denyPermissions() {
+    debugLog('🚫 Permissions denied by user');
     hidePermissionModal();
+}
+
+// Fonction pour vérifier si on est dans un contexte sécurisé
+function checkSecureContext() {
+    if (!window.isSecureContext) {
+        console.log('⚠️ Not in secure context - some features may not work');
+        return false;
+    }
+    return true;
 }
 
 // Fonction pour formater le temps
@@ -330,5 +416,6 @@ function toggleTimer() {
 // Fonctions globales pour les permissions
 window.requestPermissions = requestPermissions;
 window.denyPermissions = denyPermissions;
+window.toggleDebug = toggleDebug;
 
-console.log('✅ KaizenWalk ready');
+debugLog('✅ KaizenWalk ready');
