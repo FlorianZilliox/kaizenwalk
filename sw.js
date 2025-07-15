@@ -1,8 +1,8 @@
 const CACHE_NAME = 'kaizenwalk-v3';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+  './',
+  './index.html',
+  './manifest.json'
 ];
 
 // Timer state
@@ -154,10 +154,11 @@ function completeTimer() {
   // Show completion notification
   self.registration.showNotification('KaizenWalk Complete! 🎉', {
     body: 'Congratulations! You completed your 30-minute walk.',
-    icon: 'icon-192x192.png',
-    badge: 'icon-192x192.png',
+    icon: './icon-192x192.png',
+    badge: './icon-192x192.png',
     tag: 'kaizenwalk-complete',
-    silent: false
+    requireInteraction: true,
+    vibrate: [200, 100, 200, 100, 200]
   });
   
   // Sync with main thread
@@ -180,15 +181,17 @@ function checkIntervalChange() {
     
     // Show notification for interval change
     if (timerState.lastInterval !== -1) {
-      const title = isFast ? 'Fast Walk' : 'Slow Walk';
+      const title = isFast ? '🏃 Fast Walk' : '🚶 Slow Walk';
       const body = `Set ${setNumber} of 5 - ${isFast ? 'Speed up!' : 'Slow down'}`;
       
       self.registration.showNotification(title, {
         body: body,
-        icon: 'icon-512x512.png',
-        badge: 'icon-512x512.png',
+        icon: './icon-192x192.png',
+        badge: './icon-192x192.png',
         tag: 'kaizenwalk-interval',
-        silent: false,
+        renotify: true,
+        requireInteraction: false,
+        vibrate: isFast ? [100, 50, 100] : [200],
         data: { 
           interval: currentInterval,
           isFast: isFast 
@@ -228,11 +231,21 @@ self.addEventListener('notificationclick', event => {
   
   // Focus the app window
   event.waitUntil(
-    self.clients.matchAll().then(clients => {
-      if (clients.length > 0) {
-        return clients[0].focus();
+    self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true
+    }).then(windowClients => {
+      // Check if there is already a window/tab open
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url.includes('index.html') && 'focus' in client) {
+          return client.focus();
+        }
       }
-      return self.clients.openWindow('/');
+      // If no window/tab is open, open a new one
+      if (self.clients.openWindow) {
+        return self.clients.openWindow('./');
+      }
     })
   );
 });
