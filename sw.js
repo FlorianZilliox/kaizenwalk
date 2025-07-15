@@ -1,8 +1,8 @@
 const CACHE_NAME = 'kaizenwalk-v3';
 const urlsToCache = [
-  './',
-  './index.html',
-  './manifest.json'
+  '/',
+  '/index.html',
+  '/manifest.json'
 ];
 
 // Timer state
@@ -154,8 +154,8 @@ function completeTimer() {
   // Show completion notification
   self.registration.showNotification('KaizenWalk Complete! 🎉', {
     body: 'Congratulations! You completed your 30-minute walk.',
-    icon: './icon-192x192.png',
-    badge: './icon-192x192.png',
+    icon: 'icon-512x512.png',
+    badge: 'icon-512x512.png',
     tag: 'kaizenwalk-complete',
     requireInteraction: true,
     vibrate: [200, 100, 200, 100, 200]
@@ -186,8 +186,8 @@ function checkIntervalChange() {
       
       self.registration.showNotification(title, {
         body: body,
-        icon: './icon-192x192.png',
-        badge: './icon-192x192.png',
+        icon: 'icon-512x512.png',
+        badge: 'icon-512x512.png',
         tag: 'kaizenwalk-interval',
         renotify: true,
         requireInteraction: false,
@@ -244,7 +244,7 @@ self.addEventListener('notificationclick', event => {
       }
       // If no window/tab is open, open a new one
       if (self.clients.openWindow) {
-        return self.clients.openWindow('./');
+        return self.clients.openWindow('/');
       }
     })
   );
