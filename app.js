@@ -9,6 +9,11 @@ function debugLog(message) {
     debugLogs.push(new Date().toLocaleTimeString() + ': ' + message);
     if (debugLogs.length > 20) debugLogs.shift(); // Keep only last 20 logs
     updateDebugPanel();
+    
+    // Aussi dans l'interface
+    if (debugInfo) {
+        debugInfo.textContent = message;
+    }
 }
 
 function updateDebugPanel() {
@@ -56,6 +61,7 @@ const startButton = document.getElementById('startButton');
 const permissionModal = document.getElementById('permissionModal');
 const debugPanel = document.getElementById('debugPanel');
 const debugContent = document.getElementById('debugContent');
+const debugInfo = document.getElementById('debugInfo');
 
 // Initialisation
 document.addEventListener('DOMContentLoaded', () => {
@@ -92,43 +98,64 @@ function hidePermissionModal() {
     permissionModal.classList.add('hidden');
 }
 
-async function requestPermissions() {
-    debugLog('🔐 Requesting permissions...');
-    debugLog('Current permission state: ' + Notification.permission);
+function requestPermissions() {
+    debugLog('🔐 Clicking Allow button...');
     
-    try {
-        // Vérifier si Notification est supporté
+    setTimeout(() => {
+        debugLog('🔐 Starting permission request...');
+        
         if (!('Notification' in window)) {
             debugLog('❌ Notifications not supported');
             hidePermissionModal();
             return;
         }
         
-        const permission = await Notification.requestPermission();
-        debugLog('Permission result: ' + permission);
+        debugLog('📱 Calling Notification.requestPermission()...');
         
-        if (permission === 'granted') {
-            permissionsGranted = true;
-            debugLog('✅ Permissions granted');
-            hidePermissionModal();
+        try {
+            const request = Notification.requestPermission();
             
-            // Test notification
-            try {
-                new Notification('KaizenWalk Ready! 🎉', {
-                    body: 'Notifications are working!',
-                    icon: '/icon-512x512.png',
-                    tag: 'test'
+            if (request && typeof request.then === 'function') {
+                // Promise-based
+                request.then(function(permission) {
+                    debugLog('Promise result: ' + permission);
+                    handlePermissionResult(permission);
+                }).catch(function(error) {
+                    debugLog('Promise error: ' + error.message);
+                    hidePermissionModal();
                 });
-                debugLog('✅ Test notification sent');
-            } catch (e) {
-                debugLog('❌ Test notification failed: ' + e.message);
+            } else {
+                // Callback-based (older browsers)
+                debugLog('Callback result: ' + request);
+                handlePermissionResult(request);
             }
-        } else {
-            debugLog('❌ Permission denied: ' + permission);
+        } catch (error) {
+            debugLog('❌ Request failed: ' + error.message);
             hidePermissionModal();
         }
-    } catch (error) {
-        debugLog('❌ Permission request failed: ' + error.message);
+    }, 100);
+}
+
+function handlePermissionResult(permission) {
+    debugLog('Final permission: ' + permission);
+    
+    if (permission === 'granted') {
+        permissionsGranted = true;
+        debugLog('✅ SUCCESS - Permissions granted!');
+        hidePermissionModal();
+        
+        // Test notification
+        try {
+            new Notification('KaizenWalk Ready! 🎉', {
+                body: 'Notifications working!',
+                icon: './icon-512x512.png'
+            });
+            debugLog('✅ Test notification sent');
+        } catch (e) {
+            debugLog('❌ Test notification failed: ' + e.message);
+        }
+    } else {
+        debugLog('❌ Permission denied: ' + permission);
         hidePermissionModal();
     }
 }
