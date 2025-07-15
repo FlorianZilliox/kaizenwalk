@@ -74,18 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
     showDebugOnMobile();
     checkSecureContext();
     
-    // Vérifier les permissions
-    if (Notification.permission === 'granted') {
-        permissionsGranted = true;
-        debugLog('✅ Permissions already granted');
-        // Ne pas afficher la modal si déjà accordées
-    } else if (Notification.permission === 'default') {
-        debugLog('❓ No permissions yet, showing modal');
-        showPermissionModal();
-    } else {
-        debugLog('❌ Permissions denied previously');
-        // Ne pas afficher la modal si refusées
-    }
+    // Vérifier les permissions - TOUJOURS demander à chaque chargement
+    debugLog('🔄 Forcing permission request on page load');
+    showPermissionModal();
     
     // Gestionnaire de bouton
     startButton.addEventListener('click', toggleTimer);
@@ -334,13 +325,8 @@ function startTimer() {
     timerInterval = setInterval(updateTimer, 1000);
     updateTimer(); // Première mise à jour immédiate
     
-    // Demander permissions si pas encore accordées ET seulement si permission 'default'
-    if (!permissionsGranted && Notification.permission === 'default') {
-        debugLog('⚠️ Starting timer but no permissions - showing modal');
-        showPermissionModal();
-    } else if (permissionsGranted) {
-        debugLog('✅ Timer started with permissions already granted');
-    }
+    // Les permissions sont maintenant obligatoires et demandées au chargement
+    debugLog('✅ Timer started (permissions handled at page load)');
 }
 
 // Arrêter le timer
