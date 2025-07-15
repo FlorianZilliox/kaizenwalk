@@ -444,5 +444,6 @@ function toggleTimer() {
 window.requestPermissions = requestPermissions;
 window.denyPermissions = denyPermissions;
 window.toggleDebug = toggleDebug;
+window.hidePermissionModal = hidePermissionModal;
 
 debugLog('✅ KaizenWalk ready');
