@@ -88,7 +88,13 @@ function showPermissionModal() {
 }
 
 function hidePermissionModal() {
-    permissionModal.classList.add('hidden');
+    debugLog('🔒 Hiding permission modal...');
+    if (permissionModal) {
+        permissionModal.classList.add('hidden');
+        debugLog('✅ Permission modal hidden');
+    } else {
+        debugLog('❌ Permission modal element not found');
+    }
 }
 
 function requestPermissions() {
