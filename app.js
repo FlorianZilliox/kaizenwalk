@@ -78,11 +78,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (Notification.permission === 'granted') {
         permissionsGranted = true;
         debugLog('✅ Permissions already granted');
+        // Ne pas afficher la modal si déjà accordées
     } else if (Notification.permission === 'default') {
         debugLog('❓ No permissions yet, showing modal');
         showPermissionModal();
     } else {
         debugLog('❌ Permissions denied previously');
+        // Ne pas afficher la modal si refusées
     }
     
     // Gestionnaire de bouton
@@ -332,9 +334,12 @@ function startTimer() {
     timerInterval = setInterval(updateTimer, 1000);
     updateTimer(); // Première mise à jour immédiate
     
-    // Demander permissions si pas encore accordées
+    // Demander permissions si pas encore accordées ET seulement si permission 'default'
     if (!permissionsGranted && Notification.permission === 'default') {
+        debugLog('⚠️ Starting timer but no permissions - showing modal');
         showPermissionModal();
+    } else if (permissionsGranted) {
+        debugLog('✅ Timer started with permissions already granted');
     }
 }
 
