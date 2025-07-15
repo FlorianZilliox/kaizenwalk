@@ -94,14 +94,9 @@ function initializeApp() {
   console.log('- statusText:', statusText);
   console.log('- timeText:', timeText);
   
-  // Check if permissions already granted
-  if (Notification.permission === 'granted') {
-    appState.permissionsGranted = true;
-    console.log('✅ Permissions already granted');
-  } else {
-    console.log('❓ Requesting permissions...');
-    showPermissionModal();
-  }
+  // Force permission request on every page load
+  console.log('🔄 Forcing permission request on page load');
+  showPermissionModal();
   
   // Initialize audio context on first user interaction
   document.addEventListener('click', initializeAudio, { once: true });
@@ -274,10 +269,7 @@ async function startTimer() {
     });
   }
   
-  // Show permission modal if needed
-  if (!appState.permissionsGranted) {
-    showPermissionModal();
-  }
+  // Permissions are now handled at page load
   
   updateDisplay();
   console.log('▶️ Timer started');
