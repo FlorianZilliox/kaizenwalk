@@ -131,24 +131,66 @@ function hidePermissionModal() {
   }
 }
 
-async function requestPermissions() {
+function requestPermissions() {
+  console.log('🔐 Requesting permissions...');
+  
+  // Try both callback and promise approaches for iOS Safari compatibility
   try {
-    // Request notification permission
-    const notificationPermission = await Notification.requestPermission();
+    const result = Notification.requestPermission();
     
-    if (notificationPermission === 'granted') {
-      appState.permissionsGranted = true;
-      hidePermissionModal();
-      
-      // Initialize audio context
-      await initializeAudio();
-      
-      console.log('✅ Permissions granted');
+    if (result && typeof result.then === 'function') {
+      // Promise-based (modern browsers)
+      result.then(function(permission) {
+        console.log('Promise result:', permission);
+        handlePermissionResult(permission);
+      }).catch(function(error) {
+        console.error('Promise error:', error);
+        // Try again with callback approach
+        requestPermissionsCallback();
+      });
     } else {
-      console.log('❌ Notification permission denied');
+      // Callback-based (older Safari)
+      console.log('Callback result:', result);
+      handlePermissionResult(result);
     }
   } catch (error) {
     console.error('Permission request failed:', error);
+    // Try callback approach as fallback
+    requestPermissionsCallback();
+  }
+}
+
+function requestPermissionsCallback() {
+  console.log('🔐 Trying callback approach...');
+  try {
+    Notification.requestPermission(function(permission) {
+      console.log('Callback result:', permission);
+      handlePermissionResult(permission);
+    });
+  } catch (error) {
+    console.error('Callback approach failed:', error);
+    // Last resort - hide modal after delay
+    setTimeout(() => {
+      console.log('⏰ All permission attempts failed - hiding modal');
+      hidePermissionModal();
+    }, 2000);
+  }
+}
+
+async function handlePermissionResult(permission) {
+  console.log('Final permission result:', permission);
+  
+  if (permission === 'granted') {
+    appState.permissionsGranted = true;
+    hidePermissionModal();
+    
+    // Initialize audio context
+    await initializeAudio();
+    
+    console.log('✅ Permissions granted');
+  } else {
+    console.log('❌ Notification permission denied');
+    hidePermissionModal();
   }
 }
 
