@@ -115,11 +115,20 @@ function initializeApp() {
 }
 
 function showPermissionModal() {
+  console.log('🔓 Showing permission modal...');
   permissionModal.classList.remove('hidden');
+  permissionModal.style.display = 'flex'; // Force show
 }
 
 function hidePermissionModal() {
-  permissionModal.classList.add('hidden');
+  console.log('🔒 Hiding permission modal...');
+  if (permissionModal) {
+    permissionModal.classList.add('hidden');
+    permissionModal.style.display = 'none'; // Force hide
+    console.log('✅ Permission modal hidden');
+  } else {
+    console.log('❌ Permission modal not found');
+  }
 }
 
 async function requestPermissions() {
