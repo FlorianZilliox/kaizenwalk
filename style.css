@@ -171,6 +171,37 @@ body {
     color: #fff;
 }
 
+/* Debug panel */
+.debug-panel {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.9);
+    color: #00ff00;
+    padding: 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: monospace;
+    max-height: 150px;
+    overflow-y: auto;
+    z-index: 999;
+    border: 1px solid #333;
+}
+
+.debug-panel.hidden {
+    display: none;
+}
+
+.debug-close {
+    position: absolute;
+    top: 5px;
+    right: 10px;
+    color: #ff0000;
+    cursor: pointer;
+    font-weight: bold;
+}
+
 /* Support pour les appareils avec notch */
 @supports (padding: max(0px)) {
     .container {
