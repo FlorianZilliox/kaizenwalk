@@ -1,446 +1,614 @@
-console.log('🚀 KaizenWalk starting...');
+// Timer configuration constants
+const TIMER_CONFIG = {
+  TOTAL_DURATION: 1800, // 30 minutes in seconds
+  INTERVAL_DURATION: 180, // 3 minutes in seconds
+  TOTAL_INTERVALS: 10,
+  TOTAL_SETS: 5
+};
 
-// Debug functions
-let debugLogs = [];
-let debugVisible = false;
+// Colors
+const COLORS = {
+  fastColor: '#00FFFF',   // Cyan for fast walk
+  slowColor: '#FF00FF',   // Magenta for slow walk
+  primary: '#00FFFF',     // Cyan for buttons
+  text: '#FFFFFF',        // White text
+  textSecondary: '#9CA3AF', // Light gray for secondary text
+  background: '#000000',  // Black background
+  surface: '#1F2937',     // Dark surface
+  overlay: 'rgba(0, 0, 0, 0.5)' // Semi-transparent overlay
+};
 
-function debugLog(message) {
-    console.log(message);
-    debugLogs.push(new Date().toLocaleTimeString() + ': ' + message);
-    if (debugLogs.length > 20) debugLogs.shift(); // Keep only last 20 logs
-    updateDebugPanel();
-    
-    // Aussi dans l'interface
-    if (debugInfo) {
-        debugInfo.textContent = message;
-    }
-}
+// Helper functions
+const formatTime = (seconds) => {
+  if (seconds < 0) seconds = 0;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
 
-function updateDebugPanel() {
-    if (debugContent) {
-        debugContent.innerHTML = debugLogs.join('<br>');
-        debugContent.scrollTop = debugContent.scrollHeight;
-    }
-}
+const getCurrentInterval = (elapsedTime) => {
+  return Math.floor(elapsedTime / TIMER_CONFIG.INTERVAL_DURATION);
+};
 
-function toggleDebug() {
-    debugVisible = !debugVisible;
-    if (debugVisible) {
-        debugPanel.classList.remove('hidden');
-    } else {
-        debugPanel.classList.add('hidden');
-    }
-}
+const isFastInterval = (intervalIndex) => {
+  return intervalIndex % 2 === 0;
+};
 
-// Show debug panel automatically on mobile
-function showDebugOnMobile() {
-    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        debugVisible = true;
-        debugPanel.classList.remove('hidden');
-    }
-}
+const getSetInfo = (currentInterval) => {
+  const setNumber = Math.floor(currentInterval / 2) + 1;
+  const remaining = TIMER_CONFIG.TOTAL_SETS - setNumber;
+  return {
+    setNumber,
+    remaining,
+    displayText: `Set ${setNumber}/${TIMER_CONFIG.TOTAL_SETS} • ${remaining} ${remaining === 1 ? 'set' : 'sets'} remaining`
+  };
+};
 
-// Variables globales
-let isRunning = false;
-let startTime = null;
-let elapsedTime = 0;
-let timerInterval = null;
-let lastInterval = -1;
-let permissionsGranted = false;
+const getTimeInCurrentInterval = (elapsedTime) => {
+  return elapsedTime % TIMER_CONFIG.INTERVAL_DURATION;
+};
 
-// Configuration
-const TOTAL_DURATION = 30 * 60; // 30 minutes
-const INTERVAL_DURATION = 3 * 60; // 3 minutes
+const getTotalTimeRemaining = (elapsedTime) => {
+  return TIMER_CONFIG.TOTAL_DURATION - elapsedTime;
+};
 
-// Elements DOM
+const getIntervalProgress = (elapsedTime) => {
+  return getTimeInCurrentInterval(elapsedTime) / TIMER_CONFIG.INTERVAL_DURATION;
+};
+
+// App state
+let appState = {
+  isRunning: false,
+  elapsedTime: 0,
+  startTime: null,
+  currentInterval: -1,
+  lastInterval: -1,
+  isCompleted: false,
+  wakeLock: null,
+  audioContext: null,
+  permissionsGranted: false,
+  sounds: {}
+};
+
+// DOM elements
 const statusText = document.getElementById('statusText');
 const setInfo = document.getElementById('setInfo');
 const timeText = document.getElementById('timeText');
 const progressCircle = document.getElementById('progressCircle');
-const startButton = document.getElementById('startButton');
+const controlButton = document.getElementById('controlButton');
 const permissionModal = document.getElementById('permissionModal');
-const debugPanel = document.getElementById('debugPanel');
-const debugContent = document.getElementById('debugContent');
-const debugInfo = document.getElementById('debugInfo');
 
-// Initialisation
+let timerInterval = null;
+
+// Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-    debugLog('📱 DOM loaded, checking permissions...');
-    debugLog('Secure context: ' + window.isSecureContext);
-    debugLog('Notification support: ' + ('Notification' in window));
-    debugLog('Current permission: ' + Notification.permission);
-    debugLog('User agent: ' + navigator.userAgent);
-    
-    showDebugOnMobile();
-    checkSecureContext();
-    
-    // Vérifier les permissions - TOUJOURS demander à chaque chargement
-    debugLog('🔄 Forcing permission request on page load');
-    showPermissionModal();
-    
-    // Gestionnaire de bouton
-    startButton.addEventListener('click', toggleTimer);
+  initializeApp();
 });
 
-// Gestion des permissions
+function initializeApp() {
+  console.log('🚀 App initializing...');
+  
+  // Debug DOM elements
+  console.log('🔍 DOM Elements check:');
+  console.log('- controlButton:', controlButton);
+  console.log('- statusText:', statusText);
+  console.log('- timeText:', timeText);
+  
+  // Check if permissions already granted
+  if (Notification.permission === 'granted') {
+    appState.permissionsGranted = true;
+    console.log('✅ Permissions already granted');
+  } else {
+    console.log('❓ Requesting permissions...');
+    showPermissionModal();
+  }
+  
+  // Initialize audio context on first user interaction
+  document.addEventListener('click', initializeAudio, { once: true });
+  
+  // Listen for service worker messages
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+  }
+  
+  // Handle page visibility changes
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  
+  // Button event is handled via onclick in HTML
+  
+  updateDisplay();
+}
+
 function showPermissionModal() {
-    permissionModal.classList.remove('hidden');
+  permissionModal.classList.remove('hidden');
 }
 
 function hidePermissionModal() {
-    debugLog('🔒 Hiding permission modal...');
-    if (permissionModal) {
-        permissionModal.classList.add('hidden');
-        debugLog('✅ Permission modal hidden');
-    } else {
-        debugLog('❌ Permission modal element not found');
-    }
+  permissionModal.classList.add('hidden');
 }
 
-function requestPermissions() {
-    debugLog('🔐 Clicking Allow button...');
+async function requestPermissions() {
+  try {
+    // Request notification permission
+    const notificationPermission = await Notification.requestPermission();
     
-    setTimeout(() => {
-        debugLog('🔐 Starting permission request...');
-        
-        if (!('Notification' in window)) {
-            debugLog('❌ Notifications not supported');
-            hidePermissionModal();
-            return;
-        }
-        
-        debugLog('📱 Calling Notification.requestPermission()...');
-        
-        try {
-            const request = Notification.requestPermission();
-            
-            if (request && typeof request.then === 'function') {
-                // Promise-based
-                request.then(function(permission) {
-                    debugLog('Promise result: ' + permission);
-                    handlePermissionResult(permission);
-                }).catch(function(error) {
-                    debugLog('Promise error: ' + error.message);
-                    hidePermissionModal();
-                });
-            } else {
-                // Callback-based (older browsers)
-                debugLog('Callback result: ' + request);
-                handlePermissionResult(request);
-            }
-        } catch (error) {
-            debugLog('❌ Request failed: ' + error.message);
-            hidePermissionModal();
-        }
-    }, 100);
-}
-
-function handlePermissionResult(permission) {
-    debugLog('Final permission: ' + permission);
-    
-    if (permission === 'granted') {
-        permissionsGranted = true;
-        debugLog('✅ SUCCESS - Permissions granted!');
-        hidePermissionModal();
-        
-        // Test notification
-        try {
-            new Notification('KaizenWalk Ready! 🎉', {
-                body: 'Notifications working!',
-                icon: './icon-512x512.png'
-            });
-            debugLog('✅ Test notification sent');
-        } catch (e) {
-            debugLog('❌ Test notification failed: ' + e.message);
-        }
+    if (notificationPermission === 'granted') {
+      appState.permissionsGranted = true;
+      hidePermissionModal();
+      
+      // Initialize audio context
+      await initializeAudio();
+      
+      console.log('✅ Permissions granted');
     } else {
-        debugLog('❌ Permission denied: ' + permission);
-        hidePermissionModal();
+      console.log('❌ Notification permission denied');
     }
+  } catch (error) {
+    console.error('Permission request failed:', error);
+  }
 }
 
 function denyPermissions() {
-    debugLog('🚫 Permissions denied by user');
-    hidePermissionModal();
+  hidePermissionModal();
+  console.log('⚠️ Permissions denied - limited functionality');
 }
 
-// Fonction pour vérifier si on est dans un contexte sécurisé
-function checkSecureContext() {
-    if (!window.isSecureContext) {
-        console.log('⚠️ Not in secure context - some features may not work');
-        return false;
+async function initializeAudio() {
+  if (appState.audioContext) return;
+  
+  try {
+    appState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Resume audio context if suspended (required for iOS)
+    if (appState.audioContext.state === 'suspended') {
+      await appState.audioContext.resume();
     }
-    return true;
+    
+    console.log('🔊 Audio context initialized');
+  } catch (error) {
+    console.error('Audio initialization failed:', error);
+  }
 }
 
-// Fonction pour formater le temps
-function formatTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+// Audio generation with oscillators
+function playSound(type) {
+  if (!appState.audioContext) {
+    console.log('🔇 No audio context available');
+    return;
+  }
+  
+  console.log(`🔊 Playing ${type} sound`);
+  
+  const ctx = appState.audioContext;
+  const oscillator = ctx.createOscillator();
+  const gainNode = ctx.createGain();
+  
+  oscillator.connect(gainNode);
+  gainNode.connect(ctx.destination);
+  
+  // Configure sound based on type
+  switch (type) {
+    case 'bell': // Fast walk - bright bell
+      oscillator.frequency.setValueAtTime(800, ctx.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+      oscillator.type = 'sine';
+      break;
+      
+    case 'gong': // Slow walk - deep gong
+      oscillator.frequency.setValueAtTime(150, ctx.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.2);
+      gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0);
+      oscillator.type = 'triangle';
+      break;
+      
+    case 'fanfare': // Completion
+      playFanfare(ctx);
+      return;
+  }
+  
+  oscillator.start(ctx.currentTime);
+  oscillator.stop(ctx.currentTime + (type === 'gong' ? 1.0 : 0.4));
 }
 
-// Fonction principale du timer
-function updateTimer() {
+function playFanfare(ctx) {
+  const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+  const duration = 0.3;
+  
+  notes.forEach((freq, index) => {
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    
+    oscillator.frequency.setValueAtTime(freq, ctx.currentTime);
+    oscillator.type = 'sine';
+    
+    const startTime = ctx.currentTime + (index * duration * 0.7);
+    gainNode.gain.setValueAtTime(0.3, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+    
+    oscillator.start(startTime);
+    oscillator.stop(startTime + duration);
+  });
+}
+
+// Timer functions
+async function toggleTimer() {
+  console.log('🔄 Toggle timer clicked, isRunning:', appState.isRunning);
+  if (appState.isRunning) {
+    await stopTimer();
+  } else {
+    await startTimer();
+  }
+}
+
+async function startTimer() {
+  console.log('▶️ Starting timer...');
+  
+  const now = Date.now();
+  appState.isRunning = true;
+  appState.startTime = now;
+  appState.elapsedTime = 0;
+  appState.lastInterval = -1;
+  appState.currentInterval = -1;
+  appState.isCompleted = false;
+  
+  // Request wake lock if available
+  await requestWakeLock();
+  
+  // Start timer interval
+  startTimerInterval();
+  
+  // Schedule notifications as backup
+  await scheduleNotifications();
+  
+  // Notify service worker if available
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'START_TIMER',
+      startTime: now
+    });
+  }
+  
+  // Show permission modal if needed
+  if (!appState.permissionsGranted) {
+    showPermissionModal();
+  }
+  
+  updateDisplay();
+  console.log('▶️ Timer started');
+}
+
+async function stopTimer() {
+  console.log('⏹️ Stopping timer...');
+  
+  appState.isRunning = false;
+  appState.elapsedTime = 0;
+  appState.startTime = null;
+  appState.lastInterval = -1;
+  appState.currentInterval = -1;
+  appState.isCompleted = false;
+  
+  // Clear interval
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  
+  // Release wake lock
+  await releaseWakeLock();
+  
+  // Cancel notifications
+  await cancelNotifications();
+  
+  // Notify service worker
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'STOP_TIMER'
+    });
+  }
+  
+  updateDisplay();
+  console.log('⏹️ Timer stopped');
+}
+
+function startTimerInterval() {
+  if (timerInterval) return;
+  
+  console.log('⏱️ Starting timer interval');
+  timerInterval = setInterval(() => {
+    if (!appState.isRunning) return;
+    
     const now = Date.now();
-    elapsedTime = Math.floor((now - startTime) / 1000);
+    appState.elapsedTime = Math.floor((now - appState.startTime) / 1000);
+    console.log('⏱️ Timer tick: elapsed=', appState.elapsedTime);
     
-    // Calculer temps restant
-    const remaining = TOTAL_DURATION - elapsedTime;
-    timeText.textContent = formatTime(remaining);
-    
-    // Calculer intervalle actuel
-    const currentInterval = Math.floor(elapsedTime / INTERVAL_DURATION);
-    const isFast = currentInterval % 2 === 0;
-    
-    // Mettre à jour le statut
-    statusText.textContent = isFast ? 'Fast Walk' : 'Slow Walk';
-    statusText.style.color = '#ffffff';
-    
-    // Couleur du timer
-    timeText.style.color = isFast ? '#00FFFF' : '#FF00FF';
-    
-    // Effet pulse pour Fast Walk
-    if (isFast) {
-        timeText.classList.add('pulse');
-    } else {
-        timeText.classList.remove('pulse');
+    if (appState.elapsedTime >= TIMER_CONFIG.TOTAL_DURATION) {
+      completeTimer();
+      return;
     }
     
-    // Informations sets
-    if (currentInterval >= 0 && currentInterval < 10) {
-        const setNumber = Math.floor(currentInterval / 2) + 1;
-        const setsRemaining = 5 - setNumber;
-        setInfo.textContent = `Set ${setNumber}/5 • ${setsRemaining} sets remaining`;
-    }
+    checkIntervalChange();
+    updateDisplay();
     
-    // Cercle de progression (se vide dans le sens des aiguilles d'une montre)
-    const intervalProgress = (elapsedTime % INTERVAL_DURATION) / INTERVAL_DURATION;
-    const circumference = 2 * Math.PI * 136;
-    const offset = circumference * (1 - intervalProgress); // Se vide progressivement
-    progressCircle.style.strokeDashoffset = offset;
-    progressCircle.style.stroke = isFast ? '#00FFFF' : '#FF00FF';
-    
-    // Vérifier changement d'intervalle
-    if (currentInterval !== lastInterval && currentInterval < 10) {
-        if (lastInterval !== -1) {
-            // Jouer son musical
-            playBeep(isFast);
-            
-            // Vibration
-            if (navigator.vibrate) {
-                navigator.vibrate(isFast ? [100, 50, 100] : [200]);
-            }
-            
-            // Notification
-            if (permissionsGranted) {
-                showNotification(isFast, currentInterval);
-            }
-        }
-        lastInterval = currentInterval;
-    }
-    
-    // Vérifier si terminé
-    if (elapsedTime >= TOTAL_DURATION) {
-        completeTimer();
-    }
+  }, 1000);
 }
 
-// Sons musicaux avec accords et mélodies
-function playBeep(isFast) {
-    try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        
-        if (isFast) {
-            // Fast Walk : mélodie ascendante joyeuse (Do-Mi-Sol)
-            const melody = [523.25, 659.25, 783.99]; // C5, E5, G5
-            melody.forEach((freq, i) => {
-                const osc = audioContext.createOscillator();
-                const gain = audioContext.createGain();
-                
-                osc.connect(gain);
-                gain.connect(audioContext.destination);
-                
-                osc.frequency.value = freq;
-                osc.type = 'sine';
-                
-                const startTime = audioContext.currentTime + (i * 0.3);
-                gain.gain.setValueAtTime(0.6, startTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.5);
-                
-                osc.start(startTime);
-                osc.stop(startTime + 0.5);
-            });
-        } else {
-            // Slow Walk : accord grave et profond (accord mineur)
-            const chord = [261.63, 311.13, 392.00]; // C4, Eb4, G4 (accord de Do mineur)
-            chord.forEach((freq, i) => {
-                const osc = audioContext.createOscillator();
-                const gain = audioContext.createGain();
-                
-                osc.connect(gain);
-                gain.connect(audioContext.destination);
-                
-                osc.frequency.value = freq;
-                osc.type = 'triangle'; // Son plus chaud pour l'accord
-                
-                const startTime = audioContext.currentTime;
-                gain.gain.setValueAtTime(0.4, startTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, startTime + 1.2);
-                
-                osc.start(startTime);
-                osc.stop(startTime + 1.2);
-            });
-        }
-    } catch (e) {
-        console.log('Audio not available');
+function checkIntervalChange() {
+  const currentInterval = getCurrentInterval(appState.elapsedTime);
+  
+  if (currentInterval !== appState.lastInterval && currentInterval < TIMER_CONFIG.TOTAL_INTERVALS) {
+    const isFast = isFastInterval(currentInterval);
+    
+    // Play sound and vibrate for interval changes (except first)
+    if (appState.lastInterval !== -1) {
+      const soundType = isFast ? 'bell' : 'gong';
+      playSound(soundType);
+      
+      // Vibrate if supported
+      if ('vibrate' in navigator) {
+        const pattern = isFast ? [100, 50, 100] : [200];
+        navigator.vibrate(pattern);
+      }
+      
+      // Show notification if permissions granted
+      if (appState.permissionsGranted) {
+        showIntervalNotification(isFast, currentInterval);
+      }
+      
+      console.log(`🚶 Interval ${currentInterval}: ${isFast ? 'Fast Walk' : 'Slow Walk'}`);
     }
+    
+    appState.lastInterval = currentInterval;
+    appState.currentInterval = currentInterval;
+  }
 }
 
-// Notification
-function showNotification(isFast, intervalIndex) {
-    if (!permissionsGranted) return;
-    
-    const setNumber = Math.floor(intervalIndex / 2) + 1;
-    const title = isFast ? "Fast Walk 🏃" : "Slow Walk 🚶";
-    const body = `Set ${setNumber} of 5`;
-    
+function showIntervalNotification(isFast, intervalIndex) {
+  if (!appState.permissionsGranted) return;
+  
+  const setNumber = Math.floor(intervalIndex / 2) + 1;
+  const title = isFast ? "Fast Walk 🏃" : "Slow Walk 🚶";
+  const body = `Set ${setNumber} of ${TIMER_CONFIG.TOTAL_SETS}`;
+  
+  try {
+    new Notification(title, {
+      body,
+      icon: '/icon-512x512.png',
+      tag: 'interval-change',
+      requireInteraction: false
+    });
+  } catch (error) {
+    console.log('Notification failed:', error);
+  }
+}
+
+async function scheduleNotifications() {
+  // For PWA, we'll use immediate notifications instead of scheduling
+  // This is a simplified version - full scheduling would require service worker
+  console.log('📱 Notifications will be shown during intervals');
+}
+
+async function cancelNotifications() {
+  // Cancel any pending notifications
+  console.log('📱 Notifications cancelled');
+}
+
+async function completeTimer() {
+  console.log('🎉 Timer completing...');
+  
+  appState.isRunning = false;
+  appState.isCompleted = true;
+  
+  // Clear interval
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  
+  // Play completion sound
+  playSound('fanfare');
+  
+  // Vibrate
+  if ('vibrate' in navigator) {
+    navigator.vibrate([200, 100, 200, 100, 200]);
+  }
+  
+  // Show completion notification
+  if (appState.permissionsGranted) {
+    new Notification('KaizenWalk Complete! 🎉', {
+      body: 'Congratulations! You completed your 30-minute workout.',
+      icon: '/icon-512x512.png',
+      tag: 'completion',
+      requireInteraction: true
+    });
+  }
+  
+  // Release wake lock
+  await releaseWakeLock();
+  
+  updateDisplay();
+  console.log('🎉 Timer completed!');
+}
+
+// Wake Lock API
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
     try {
-        new Notification(title, {
-            body,
-            icon: '/icon-512x512.png',
-            tag: 'interval-change',
-            requireInteraction: false
-        });
+      appState.wakeLock = await navigator.wakeLock.request('screen');
+      console.log('🔒 Wake lock acquired');
+      
+      appState.wakeLock.addEventListener('release', () => {
+        console.log('🔓 Wake lock released');
+      });
     } catch (error) {
-        console.error('Notification failed:', error);
+      console.error('Wake lock request failed:', error);
     }
+  }
 }
 
-// Démarrer le timer
-function startTimer() {
-    console.log('▶️ Starting timer');
-    isRunning = true;
-    startTime = Date.now();
-    elapsedTime = 0;
-    lastInterval = -1;
-    
-    startButton.textContent = 'STOP';
-    startButton.className = 'button stop';
-    
-    timerInterval = setInterval(updateTimer, 1000);
-    updateTimer(); // Première mise à jour immédiate
-    
-    // Les permissions sont maintenant obligatoires et demandées au chargement
-    debugLog('✅ Timer started (permissions handled at page load)');
-}
-
-// Arrêter le timer
-function stopTimer() {
-    console.log('⏹️ Stopping timer');
-    isRunning = false;
-    
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-    }
-    
-    startButton.textContent = 'START';
-    startButton.className = 'button';
-    
-    // Reset affichage
-    statusText.textContent = 'Ready to start';
-    statusText.style.color = '#666';
-    setInfo.textContent = '';
-    timeText.textContent = '30:00';
-    timeText.style.color = '#00FFFF';
-    timeText.classList.remove('pulse');
-    
-    // Reset cercle (plein au début)
-    const circumference = 2 * Math.PI * 136;
-    progressCircle.style.strokeDashoffset = circumference;
-    progressCircle.style.stroke = '#00FFFF';
-}
-
-// Compléter le timer
-function completeTimer() {
-    console.log('🎉 Timer completed');
-    isRunning = false;
-    
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-    }
-    
-    statusText.textContent = 'Complete!';
-    statusText.style.color = '#00FFFF';
-    
-    startButton.textContent = 'START';
-    startButton.className = 'button';
-    
-    // Son de fin : fanfare triomphale
+async function releaseWakeLock() {
+  if (appState.wakeLock) {
     try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        
-        // Mélodie de victoire
-        const victoryMelody = [
-            523.25, 523.25, 523.25, 783.99, // Do-Do-Do-Sol
-            880.00, 880.00, 880.00, 783.99, // La-La-La-Sol
-            698.46, 698.46, 698.46, 659.25, // Fa-Fa-Fa-Mi
-            659.25, 523.25 // Mi-Do
-        ];
-        
-        victoryMelody.forEach((freq, i) => {
-            const osc = audioContext.createOscillator();
-            const gain = audioContext.createGain();
-            
-            osc.connect(gain);
-            gain.connect(audioContext.destination);
-            
-            osc.frequency.value = freq;
-            osc.type = 'sine';
-            
-            const startTime = audioContext.currentTime + (i * 0.15);
-            gain.gain.setValueAtTime(0.5, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
-            
-            osc.start(startTime);
-            osc.stop(startTime + 0.3);
-        });
-    } catch (e) {
-        console.log('Audio not available');
+      await appState.wakeLock.release();
+      appState.wakeLock = null;
+    } catch (error) {
+      console.error('Wake lock release failed:', error);
     }
-    
-    // Vibration de fin
-    if (navigator.vibrate) {
-        navigator.vibrate([200, 100, 200, 100, 200]);
-    }
-    
-    // Notification de fin
-    if (permissionsGranted) {
-        new Notification('KaizenWalk Complete! 🎉', {
-            body: 'Congratulations! You completed your 30-minute workout.',
-            icon: '/icon-512x512.png',
-            tag: 'completion',
-            requireInteraction: true
-        });
-    }
+  }
 }
 
-// Gestionnaire principal
-function toggleTimer() {
-    console.log('🔄 Button clicked, isRunning:', isRunning);
-    if (isRunning) {
-        stopTimer();
+// Service worker message handling
+function handleServiceWorkerMessage(event) {
+  const { type, data } = event.data;
+  
+  switch (type) {
+    case 'TIMER_UPDATE':
+      if (!appState.isRunning) {
+        // Sync state from background
+        appState = { ...appState, ...data };
+        updateDisplay();
+      }
+      break;
+    case 'TIMER_COMPLETE':
+      completeTimer();
+      break;
+  }
+}
+
+// Handle page visibility changes
+function handleVisibilityChange() {
+  if (document.hidden && appState.isRunning) {
+    // Page is hidden, background timer in service worker takes over
+    console.log('📱 Page hidden - background timer active');
+  } else if (!document.hidden && appState.isRunning) {
+    // Page is visible, sync with service worker
+    console.log('📱 Page visible - syncing timer state');
+    
+    // Recalculate elapsed time
+    if (appState.startTime) {
+      const now = Date.now();
+      const newElapsedTime = Math.floor((now - appState.startTime) / 1000);
+      
+      if (newElapsedTime >= TIMER_CONFIG.TOTAL_DURATION) {
+        completeTimer();
+      } else {
+        appState.elapsedTime = newElapsedTime;
+        checkIntervalChange();
+        updateDisplay();
+      }
+    }
+  }
+}
+
+// Display updates
+function updateDisplay() {
+  updateStatusText();
+  updateSetInfo();
+  updateTimeDisplay();
+  updateProgressCircle();
+  updateControlButton();
+}
+
+function updateStatusText() {
+  if (appState.isCompleted) {
+    statusText.textContent = 'Complete!';
+    statusText.style.color = COLORS.primary;
+    return;
+  }
+  
+  if (!appState.isRunning) {
+    statusText.textContent = 'Ready to start';
+    statusText.style.color = COLORS.textSecondary;
+    return;
+  }
+  
+  const currentInterval = getCurrentInterval(appState.elapsedTime);
+  const isFast = isFastInterval(currentInterval);
+  
+  statusText.textContent = isFast ? 'Fast Walk' : 'Slow Walk';
+  statusText.style.color = COLORS.text;
+}
+
+function updateSetInfo() {
+  if (!appState.isRunning || appState.isCompleted) {
+    setInfo.textContent = '';
+    return;
+  }
+  
+  const currentInterval = getCurrentInterval(appState.elapsedTime);
+  const setInfoData = getSetInfo(currentInterval);
+  
+  setInfo.textContent = setInfoData.displayText;
+}
+
+function updateTimeDisplay() {
+  const totalTimeRemaining = getTotalTimeRemaining(appState.elapsedTime);
+  console.log('⏰ Time update: elapsed=', appState.elapsedTime, 'remaining=', totalTimeRemaining);
+  timeText.textContent = formatTime(totalTimeRemaining);
+  
+  // Color and pulse effect
+  if (appState.isRunning) {
+    const currentInterval = getCurrentInterval(appState.elapsedTime);
+    const isFast = isFastInterval(currentInterval);
+    
+    timeText.style.color = isFast ? COLORS.fastColor : COLORS.slowColor;
+    
+    if (isFast) {
+      timeText.classList.add('pulse');
     } else {
-        startTimer();
+      timeText.classList.remove('pulse');
     }
+  } else {
+    timeText.style.color = appState.isCompleted ? COLORS.primary : COLORS.fastColor;
+    timeText.classList.remove('pulse');
+  }
 }
 
-// Fonctions globales pour les permissions
+function updateProgressCircle() {
+  const circumference = 2 * Math.PI * 136;
+  
+  if (!appState.isRunning) {
+    progressCircle.style.strokeDashoffset = circumference;
+    progressCircle.style.stroke = COLORS.fastColor;
+    return;
+  }
+  
+  // Calculate progress within current interval
+  const intervalProgress = getIntervalProgress(appState.elapsedTime);
+  const offset = circumference * (1 - intervalProgress);
+  
+  const currentInterval = getCurrentInterval(appState.elapsedTime);
+  const isFast = isFastInterval(currentInterval);
+  
+  progressCircle.style.strokeDashoffset = offset;
+  progressCircle.style.stroke = isFast ? COLORS.fastColor : COLORS.slowColor;
+}
+
+function updateControlButton() {
+  if (appState.isRunning) {
+    controlButton.textContent = 'STOP';
+    controlButton.className = 'button stop';
+  } else {
+    controlButton.textContent = 'START';
+    controlButton.className = 'button';
+  }
+}
+
+// Global functions for HTML onclick
 window.requestPermissions = requestPermissions;
 window.denyPermissions = denyPermissions;
-window.toggleDebug = toggleDebug;
-window.hidePermissionModal = hidePermissionModal;
+window.handleButtonClick = async function() {
+  console.log('🔄 Button clicked via onclick!');
+  await toggleTimer();
+};
 
-debugLog('✅ KaizenWalk ready');
+// Test function accessible from console
+window.testTimer = function() {
+  console.log('🧪 Test function called');
+  handleButtonClick();
+};

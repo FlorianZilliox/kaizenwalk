@@ -21,7 +21,6 @@
         <div class="status-display">
             <div class="status-text" id="statusText">Ready to start</div>
             <div class="set-info" id="setInfo"></div>
-            <div style="color: #666; font-size: 12px; margin-top: 10px;" id="debugInfo">Loading...</div>
         </div>
         
         <div class="timer-container">
@@ -50,14 +49,13 @@
         </div>
         
         <div class="controls">
-            <button class="button" id="startButton">START</button>
+            <button class="button" id="controlButton" onclick="handleButtonClick()">START</button>
         </div>
     </div>
     
     <!-- Modal de permissions -->
     <div class="permission-modal hidden" id="permissionModal">
         <div class="permission-content">
-            <div class="permission-close" onclick="hidePermissionModal()">×</div>
             <h2>Permissions</h2>
             <p>KaizenWalk needs permission to send notifications and play sounds during your workout.</p>
             <div class="permission-buttons">
@@ -67,11 +65,6 @@
         </div>
     </div>
 
-    <!-- Debug panel -->
-    <div class="debug-panel hidden" id="debugPanel">
-        <div class="debug-close" onclick="toggleDebug()">×</div>
-        <div id="debugContent"></div>
-    </div>
 
     <script src="app.js"></script>
 </body>
