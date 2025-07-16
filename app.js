@@ -67,6 +67,8 @@ let appState = {
   isCompleted: false,
   wakeLock: null,
   audioElement: null,
+  audioContext: null,
+  gainNode: null,
   audioLoaded: false,
   audioError: false
 };
@@ -116,6 +118,45 @@ function initializeAudio() {
   
   // Create audio element
   appState.audioElement = new Audio();
+  
+  // Configure audio for mixing with other apps (iOS/Android)
+  // This allows playing simultaneously with Spotify, etc.
+  if ('audioSession' in navigator) {
+    // Future Web API (not yet widely supported)
+    navigator.audioSession.type = 'ambient';
+  }
+  
+  // Set audio to not take exclusive control
+  appState.audioElement.setAttribute('playsinline', ''); // iOS
+  appState.audioElement.setAttribute('x-webkit-airplay', 'deny'); // Disable AirPlay
+  
+  // Set volume to 70% for mixing (fallback if Web Audio API not available)
+  appState.audioElement.volume = 0.7;
+  
+  // For iOS Safari - configure Web Audio API if needed for mixing
+  if (window.AudioContext || window.webkitAudioContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    
+    // iOS specific - set category for mixing
+    if (ctx.audioWorklet && ctx.audioWorklet.addModule) {
+      // Modern approach (when available)
+      ctx.state === 'suspended' && ctx.resume();
+    }
+    
+    // Create a gain node for volume control and mixing
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = 0.7; // Fixed at 70% to mix well with other audio
+    
+    // Connect audio element to Web Audio API for better control
+    const source = ctx.createMediaElementSource(appState.audioElement);
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    
+    appState.audioContext = ctx;
+    appState.gainNode = gainNode;
+  }
+  
   appState.audioElement.preload = 'metadata'; // Start with metadata only
   appState.audioElement.src = TIMER_CONFIG.AUDIO_FILE;
   
