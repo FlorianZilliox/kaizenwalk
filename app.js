@@ -68,7 +68,8 @@ let appState = {
   wakeLock: null,
   audioElement: null,
   audioLoaded: false,
-  audioError: false
+  audioError: false,
+  loadingProgress: 0
 };
 
 // DOM elements
@@ -77,9 +78,6 @@ const setInfo = document.getElementById('setInfo');
 const timeText = document.getElementById('timeText');
 const progressCircle = document.getElementById('progressCircle');
 const controlButton = document.getElementById('controlButton');
-const audioStatus = document.getElementById('audioStatus');
-const bufferFill = document.getElementById('bufferFill');
-const bufferText = document.getElementById('bufferText');
 
 let timerInterval = null;
 
@@ -108,11 +106,10 @@ function initializeApp() {
 function initializeAudio() {
   console.log('🎵 Initializing audio...');
   
-  // Show loading status
-  if (audioStatus) {
-    audioStatus.style.display = 'block';
-    audioStatus.classList.add('loading');
-  }
+  // Show loading state
+  statusText.textContent = 'Loading audio...';
+  timeText.textContent = 'Loading';
+  timeText.classList.add('loading-pulse');
   
   // Create audio element
   appState.audioElement = new Audio();
@@ -123,8 +120,6 @@ function initializeAudio() {
   appState.audioElement.addEventListener('loadedmetadata', () => {
     console.log('✅ Audio metadata loaded');
     console.log(`Duration: ${appState.audioElement.duration} seconds`);
-    appState.audioLoaded = true;
-    updateControlButtonState();
   });
   
   appState.audioElement.addEventListener('canplay', () => {
@@ -133,6 +128,15 @@ function initializeAudio() {
   
   appState.audioElement.addEventListener('canplaythrough', () => {
     console.log('✅ Audio can play through without buffering');
+    // Audio is fully loaded
+    appState.audioLoaded = true;
+    appState.loadingProgress = 100;
+    updateLoadingProgress();
+    
+    // Complete loading after a short delay for smooth transition
+    setTimeout(() => {
+      completeLoading();
+    }, 500);
   });
   
   appState.audioElement.addEventListener('error', (e) => {
@@ -152,21 +156,9 @@ function initializeAudio() {
         const percent = (bufferedEnd / duration) * 100;
         console.log(`🎵 Buffered: ${percent.toFixed(1)}%`);
         
-        // Update buffer display
-        if (bufferFill && bufferText) {
-          bufferFill.style.width = `${percent}%`;
-          
-          if (percent < 100) {
-            audioStatus.classList.add('loading');
-            bufferText.textContent = `Loading: ${percent.toFixed(0)}%`;
-          } else {
-            audioStatus.classList.remove('loading');
-            bufferText.textContent = 'Audio ready (cached for offline use)';
-            setTimeout(() => {
-              audioStatus.style.display = 'none';
-            }, 3000);
-          }
-        }
+        // Update loading progress
+        appState.loadingProgress = percent;
+        updateLoadingProgress();
       }
     }
   });
@@ -180,6 +172,40 @@ function initializeAudio() {
   
   // Start loading the audio file
   appState.audioElement.load();
+}
+
+function updateLoadingProgress() {
+  if (!appState.audioLoaded) {
+    // Use the progress circle for loading
+    const circumference = 2 * Math.PI * 136;
+    const offset = circumference * (1 - appState.loadingProgress / 100);
+    
+    progressCircle.style.strokeDashoffset = offset;
+    progressCircle.style.stroke = COLORS.primary;
+    
+    // Update button text with percentage
+    if (appState.loadingProgress > 0 && appState.loadingProgress < 100) {
+      controlButton.textContent = `LOADING ${Math.floor(appState.loadingProgress)}%`;
+    }
+  }
+}
+
+function completeLoading() {
+  console.log('✅ Loading complete');
+  
+  // Remove loading pulse
+  timeText.classList.remove('loading-pulse');
+  
+  // Reset to initial state
+  appState.audioLoaded = true;
+  statusText.textContent = 'Ready to start';
+  timeText.textContent = formatTime(TIMER_CONFIG.TOTAL_DURATION);
+  
+  // Reset progress circle
+  const circumference = 2 * Math.PI * 136;
+  progressCircle.style.strokeDashoffset = circumference;
+  
+  updateControlButtonState();
 }
 
 function handleAudioTimeUpdate() {
@@ -206,13 +232,8 @@ function showAudioError() {
   statusText.style.color = '#FF0000';
   controlButton.textContent = 'ERROR';
   controlButton.disabled = true;
-  
-  if (audioStatus && bufferText) {
-    audioStatus.classList.remove('loading');
-    audioStatus.classList.add('error');
-    bufferText.textContent = 'Failed to load audio file';
-    bufferFill.style.width = '0%';
-  }
+  timeText.classList.remove('loading-pulse');
+  timeText.textContent = 'Error';
 }
 
 function updateControlButtonState() {
@@ -429,6 +450,11 @@ function handleVisibilityChange() {
 
 // Display updates
 function updateDisplay() {
+  if (!appState.audioLoaded && !appState.audioError) {
+    // Don't update normal display during loading
+    return;
+  }
+  
   updateStatusText();
   updateSetInfo();
   updateTimeDisplay();
@@ -439,6 +465,10 @@ function updateDisplay() {
 function updateStatusText() {
   if (appState.audioError) {
     return; // Keep error message
+  }
+  
+  if (!appState.audioLoaded) {
+    return; // Keep loading message
   }
   
   if (appState.isCompleted) {
@@ -473,6 +503,10 @@ function updateSetInfo() {
 }
 
 function updateTimeDisplay() {
+  if (!appState.audioLoaded && !appState.audioError) {
+    return; // Keep loading text
+  }
+  
   const totalTimeRemaining = getTotalTimeRemaining(appState.elapsedTime);
   timeText.textContent = formatTime(totalTimeRemaining);
   
@@ -497,9 +531,14 @@ function updateTimeDisplay() {
 function updateProgressCircle() {
   const circumference = 2 * Math.PI * 136;
   
-  if (!appState.isRunning) {
+  if (!appState.isRunning && appState.audioLoaded) {
     progressCircle.style.strokeDashoffset = circumference;
     progressCircle.style.stroke = COLORS.fastColor;
+    return;
+  }
+  
+  if (!appState.audioLoaded) {
+    // Already handled in updateLoadingProgress
     return;
   }
   
