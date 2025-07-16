@@ -1,8 +1,13 @@
-const CACHE_NAME = 'kaizenwalk-v3';
+const CACHE_NAME = 'kaizenwalk-mp3-v1';
+const AUDIO_CACHE_NAME = 'kaizenwalk-audio-v1';
+
 const urlsToCache = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/app.js',
+  '/style.css',
+  '/manifest.json',
+  '/icon-512x512.png'
 ];
 
 // Timer state
@@ -24,50 +29,32 @@ const TIMER_CONFIG = {
 
 // Install event
 self.addEventListener('install', event => {
+  console.log('Service Worker installing...');
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        // Add files one by one to avoid failures
-        return Promise.all(
-          urlsToCache.map(url => {
-            return cache.add(url).catch(error => {
-              console.log('Failed to cache:', url, error);
-            });
-          })
-        );
+        console.log('Caching app files...');
+        return cache.addAll(urlsToCache);
+      })
+      .then(() => {
+        console.log('App files cached successfully');
+      })
+      .catch(error => {
+        console.error('Failed to cache app files:', error);
       })
   );
   self.skipWaiting();
 });
 
-// Fetch event
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        if (response) {
-          return response;
-        }
-        
-        return fetch(event.request).catch(error => {
-          console.log('Fetch failed for:', event.request.url, error);
-          // Return a fallback response or let it fail gracefully
-          return new Response('Resource not found', {
-            status: 404,
-            statusText: 'Not Found'
-          });
-        });
-      })
-  );
-});
-
 // Activate event
 self.addEventListener('activate', event => {
+  console.log('Service Worker activating...');
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
+          if (cacheName !== CACHE_NAME && cacheName !== AUDIO_CACHE_NAME) {
+            console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
         })
@@ -77,13 +64,100 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
+// Fetch event with special handling for MP3 file
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  
+  // Special handling for MP3 file with range requests support
+  if (url.pathname.includes('kaizenwalk_30min.mp3')) {
+    event.respondWith(handleAudioRequest(event.request));
+    return;
+  }
+  
+  // Standard cache-first strategy for other files
+  event.respondWith(
+    caches.match(event.request)
+      .then(response => {
+        if (response) {
+          return response;
+        }
+        
+        return fetch(event.request).then(response => {
+          // Don't cache non-successful responses
+          if (!response || response.status !== 200 || response.type !== 'basic') {
+            return response;
+          }
+          
+          // Clone the response
+          const responseToCache = response.clone();
+          
+          caches.open(CACHE_NAME)
+            .then(cache => {
+              cache.put(event.request, responseToCache);
+            });
+          
+          return response;
+        });
+      })
+      .catch(error => {
+        console.error('Fetch failed:', error);
+        // Return offline page or error response
+        return new Response('Offline - Resource not available', {
+          status: 503,
+          statusText: 'Service Unavailable'
+        });
+      })
+  );
+});
+
+// Handle audio file requests with range support
+async function handleAudioRequest(request) {
+  const cache = await caches.open(AUDIO_CACHE_NAME);
+  
+  // Check if we have a cached response
+  const cachedResponse = await cache.match(request, { ignoreSearch: true });
+  
+  // If no cache or it's a range request, fetch from network
+  if (!cachedResponse || request.headers.get('range')) {
+    try {
+      console.log('Fetching audio from network...');
+      const networkResponse = await fetch(request);
+      
+      // Cache the response if it's the full file (not a range request)
+      if (!request.headers.get('range') && networkResponse.status === 200) {
+        console.log('Caching full audio file...');
+        cache.put(request, networkResponse.clone());
+      }
+      
+      return networkResponse;
+    } catch (error) {
+      console.error('Network fetch failed:', error);
+      
+      // If we have a cached version and network fails, return it
+      if (cachedResponse) {
+        console.log('Returning cached audio file');
+        return cachedResponse;
+      }
+      
+      // Otherwise return error
+      return new Response('Audio file not available offline', {
+        status: 503,
+        statusText: 'Service Unavailable'
+      });
+    }
+  }
+  
+  console.log('Returning cached audio file');
+  return cachedResponse;
+}
+
 // Message handling from main thread
 self.addEventListener('message', event => {
   const { type, data } = event.data;
   
   switch (type) {
     case 'START_TIMER':
-      startBackgroundTimer();
+      startBackgroundTimer(data);
       break;
     case 'STOP_TIMER':
       stopBackgroundTimer();
@@ -91,19 +165,58 @@ self.addEventListener('message', event => {
     case 'SYNC_STATE':
       timerState = { ...timerState, ...data };
       break;
+    case 'PRELOAD_AUDIO':
+      preloadAudioFile();
+      break;
   }
 });
+
+// Preload audio file into cache
+async function preloadAudioFile() {
+  try {
+    const cache = await caches.open(AUDIO_CACHE_NAME);
+    const audioUrl = '/kaizenwalk_30min.mp3';
+    
+    // Check if already cached
+    const existing = await cache.match(audioUrl);
+    if (existing) {
+      console.log('Audio file already cached');
+      return;
+    }
+    
+    console.log('Preloading audio file...');
+    const response = await fetch(audioUrl);
+    
+    if (response.ok) {
+      await cache.put(audioUrl, response);
+      console.log('Audio file cached successfully');
+      
+      // Notify all clients
+      const clients = await self.clients.matchAll();
+      clients.forEach(client => {
+        client.postMessage({
+          type: 'AUDIO_CACHED',
+          cached: true
+        });
+      });
+    }
+  } catch (error) {
+    console.error('Failed to preload audio:', error);
+  }
+}
 
 // Background timer functionality
 let backgroundInterval = null;
 
-function startBackgroundTimer() {
+function startBackgroundTimer(data) {
   if (backgroundInterval) return;
   
   timerState.isRunning = true;
-  timerState.startTime = Date.now();
+  timerState.startTime = data.startTime || Date.now();
   timerState.elapsedTime = 0;
   timerState.lastInterval = -1;
+  
+  console.log('Background timer started');
   
   backgroundInterval = setInterval(() => {
     if (!timerState.isRunning) return;
@@ -141,6 +254,8 @@ function stopBackgroundTimer() {
     clearInterval(backgroundInterval);
     backgroundInterval = null;
   }
+  
+  console.log('Background timer stopped');
 }
 
 function completeTimer() {
@@ -154,11 +269,11 @@ function completeTimer() {
   // Show completion notification
   self.registration.showNotification('KaizenWalk Complete! 🎉', {
     body: 'Congratulations! You completed your 30-minute walk.',
-    icon: 'icon-512x512.png',
-    badge: 'icon-512x512.png',
+    icon: '/icon-512x512.png',
+    badge: '/icon-512x512.png',
     tag: 'kaizenwalk-complete',
-    requireInteraction: true,
-    vibrate: [200, 100, 200, 100, 200]
+    vibrate: [200, 100, 200, 100, 200],
+    requireInteraction: false
   });
   
   // Sync with main thread
@@ -176,29 +291,6 @@ function checkIntervalChange() {
   const currentInterval = getCurrentInterval(timerState.elapsedTime);
   
   if (currentInterval !== timerState.lastInterval && currentInterval < TIMER_CONFIG.TOTAL_INTERVALS) {
-    const isFast = isFastInterval(currentInterval);
-    const setNumber = Math.floor(currentInterval / 2) + 1;
-    
-    // Show notification for interval change
-    if (timerState.lastInterval !== -1) {
-      const title = isFast ? '🏃 Fast Walk' : '🚶 Slow Walk';
-      const body = `Set ${setNumber} of 5 - ${isFast ? 'Speed up!' : 'Slow down'}`;
-      
-      self.registration.showNotification(title, {
-        body: body,
-        icon: 'icon-512x512.png',
-        badge: 'icon-512x512.png',
-        tag: 'kaizenwalk-interval',
-        renotify: true,
-        requireInteraction: false,
-        vibrate: isFast ? [100, 50, 100] : [200],
-        data: { 
-          interval: currentInterval,
-          isFast: isFast 
-        }
-      });
-    }
-    
     timerState.lastInterval = currentInterval;
     timerState.currentInterval = currentInterval;
   }
@@ -209,40 +301,20 @@ function getCurrentInterval(elapsedTime) {
   return Math.floor(elapsedTime / TIMER_CONFIG.INTERVAL_DURATION);
 }
 
-function isFastInterval(interval) {
-  return interval % 2 === 0; // 0,2,4,6,8 are fast
-}
-
-// Background sync
-self.addEventListener('sync', event => {
-  if (event.tag === 'timer-sync') {
-    event.waitUntil(syncTimerState());
-  }
-});
-
-function syncTimerState() {
-  // Maintain timer state persistence
-  return Promise.resolve();
-}
-
 // Notification click handling
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   
   // Focus the app window
   event.waitUntil(
-    self.clients.matchAll({
-      type: 'window',
-      includeUncontrolled: true
-    }).then(windowClients => {
-      // Check if there is already a window/tab open
-      for (let i = 0; i < windowClients.length; i++) {
-        const client = windowClients[i];
-        if (client.url.includes('index.html') && 'focus' in client) {
+    self.clients.matchAll({ type: 'window' }).then(clients => {
+      // Check if there's already a window open
+      for (const client of clients) {
+        if (client.url.includes(self.registration.scope) && 'focus' in client) {
           return client.focus();
         }
       }
-      // If no window/tab is open, open a new one
+      // If no window is open, open a new one
       if (self.clients.openWindow) {
         return self.clients.openWindow('/');
       }

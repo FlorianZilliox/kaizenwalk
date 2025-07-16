@@ -49,22 +49,11 @@
         </div>
         
         <div class="controls">
-            <button class="button" id="controlButton" onclick="handleButtonClick()">START</button>
+            <button class="button" id="controlButton" onclick="handleButtonClick()">LOADING...</button>
         </div>
+        
+        <div class="audio-status" id="audioStatus"></div>
     </div>
-    
-    <!-- Modal de permissions -->
-    <div class="permission-modal hidden" id="permissionModal">
-        <div class="permission-content">
-            <h2>Permissions</h2>
-            <p>KaizenWalk needs permission to send notifications and play sounds during your workout.</p>
-            <div class="permission-buttons">
-                <button class="permission-btn deny" onclick="denyPermissions()">Not now</button>
-                <button class="permission-btn allow" onclick="requestPermissions()">Allow</button>
-            </div>
-        </div>
-    </div>
-
 
     <script src="app.js"></script>
 </body>

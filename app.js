@@ -3,7 +3,8 @@ const TIMER_CONFIG = {
   TOTAL_DURATION: 1800, // 30 minutes in seconds
   INTERVAL_DURATION: 180, // 3 minutes in seconds
   TOTAL_INTERVALS: 10,
-  TOTAL_SETS: 5
+  TOTAL_SETS: 5,
+  AUDIO_FILE: 'kaizenwalk_30min.mp3' // Audio file path
 };
 
 // Colors
@@ -65,9 +66,9 @@ let appState = {
   lastInterval: -1,
   isCompleted: false,
   wakeLock: null,
-  audioContext: null,
-  permissionsGranted: false,
-  sounds: {}
+  audioElement: null,
+  audioLoaded: false,
+  audioError: false
 };
 
 // DOM elements
@@ -76,7 +77,6 @@ const setInfo = document.getElementById('setInfo');
 const timeText = document.getElementById('timeText');
 const progressCircle = document.getElementById('progressCircle');
 const controlButton = document.getElementById('controlButton');
-const permissionModal = document.getElementById('permissionModal');
 
 let timerInterval = null;
 
@@ -88,18 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function initializeApp() {
   console.log('🚀 App initializing...');
   
-  // Debug DOM elements
-  console.log('🔍 DOM Elements check:');
-  console.log('- controlButton:', controlButton);
-  console.log('- statusText:', statusText);
-  console.log('- timeText:', timeText);
-  
-  // Force permission request on every page load
-  console.log('🔄 Forcing permission request on page load');
-  showPermissionModal();
-  
-  // Initialize audio context on first user interaction
-  document.addEventListener('click', initializeAudio, { once: true });
+  // Initialize audio element
+  initializeAudio();
   
   // Listen for service worker messages
   if ('serviceWorker' in navigator) {
@@ -109,177 +99,101 @@ function initializeApp() {
   // Handle page visibility changes
   document.addEventListener('visibilitychange', handleVisibilityChange);
   
-  // Button event is handled via onclick in HTML
-  
   updateDisplay();
 }
 
-function showPermissionModal() {
-  console.log('🔓 Showing permission modal...');
-  permissionModal.classList.remove('hidden');
-  permissionModal.style.display = 'flex'; // Force show
-}
-
-function hidePermissionModal() {
-  console.log('🔒 Hiding permission modal...');
-  if (permissionModal) {
-    permissionModal.classList.add('hidden');
-    permissionModal.style.display = 'none'; // Force hide
-    console.log('✅ Permission modal hidden');
-  } else {
-    console.log('❌ Permission modal not found');
-  }
-}
-
-function requestPermissions() {
-  console.log('🔐 Requesting permissions...');
+function initializeAudio() {
+  console.log('🎵 Initializing audio...');
   
-  // Try both callback and promise approaches for iOS Safari compatibility
-  try {
-    const result = Notification.requestPermission();
-    
-    if (result && typeof result.then === 'function') {
-      // Promise-based (modern browsers)
-      result.then(function(permission) {
-        console.log('Promise result:', permission);
-        handlePermissionResult(permission);
-      }).catch(function(error) {
-        console.error('Promise error:', error);
-        // Try again with callback approach
-        requestPermissionsCallback();
-      });
-    } else {
-      // Callback-based (older Safari)
-      console.log('Callback result:', result);
-      handlePermissionResult(result);
-    }
-  } catch (error) {
-    console.error('Permission request failed:', error);
-    // Try callback approach as fallback
-    requestPermissionsCallback();
-  }
-}
-
-function requestPermissionsCallback() {
-  console.log('🔐 Trying callback approach...');
-  try {
-    Notification.requestPermission(function(permission) {
-      console.log('Callback result:', permission);
-      handlePermissionResult(permission);
-    });
-  } catch (error) {
-    console.error('Callback approach failed:', error);
-    // Last resort - hide modal after delay
-    setTimeout(() => {
-      console.log('⏰ All permission attempts failed - hiding modal');
-      hidePermissionModal();
-    }, 2000);
-  }
-}
-
-async function handlePermissionResult(permission) {
-  console.log('Final permission result:', permission);
+  // Create audio element
+  appState.audioElement = new Audio();
+  appState.audioElement.preload = 'metadata'; // Start with metadata only
+  appState.audioElement.src = TIMER_CONFIG.AUDIO_FILE;
   
-  if (permission === 'granted') {
-    appState.permissionsGranted = true;
-    hidePermissionModal();
-    
-    // Initialize audio context
-    await initializeAudio();
-    
-    console.log('✅ Permissions granted');
-  } else {
-    console.log('❌ Notification permission denied');
-    hidePermissionModal();
-  }
-}
-
-function denyPermissions() {
-  hidePermissionModal();
-  console.log('⚠️ Permissions denied - limited functionality');
-}
-
-async function initializeAudio() {
-  if (appState.audioContext) return;
-  
-  try {
-    appState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    
-    // Resume audio context if suspended (required for iOS)
-    if (appState.audioContext.state === 'suspended') {
-      await appState.audioContext.resume();
-    }
-    
-    console.log('🔊 Audio context initialized');
-  } catch (error) {
-    console.error('Audio initialization failed:', error);
-  }
-}
-
-// Audio generation with oscillators
-function playSound(type) {
-  if (!appState.audioContext) {
-    console.log('🔇 No audio context available');
-    return;
-  }
-  
-  console.log(`🔊 Playing ${type} sound`);
-  
-  const ctx = appState.audioContext;
-  const oscillator = ctx.createOscillator();
-  const gainNode = ctx.createGain();
-  
-  oscillator.connect(gainNode);
-  gainNode.connect(ctx.destination);
-  
-  // Configure sound based on type
-  switch (type) {
-    case 'bell': // Fast walk - bright bell
-      oscillator.frequency.setValueAtTime(800, ctx.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
-      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-      oscillator.type = 'sine';
-      break;
-      
-    case 'gong': // Slow walk - deep gong
-      oscillator.frequency.setValueAtTime(150, ctx.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.2);
-      gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0);
-      oscillator.type = 'triangle';
-      break;
-      
-    case 'fanfare': // Completion
-      playFanfare(ctx);
-      return;
-  }
-  
-  oscillator.start(ctx.currentTime);
-  oscillator.stop(ctx.currentTime + (type === 'gong' ? 1.0 : 0.4));
-}
-
-function playFanfare(ctx) {
-  const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
-  const duration = 0.3;
-  
-  notes.forEach((freq, index) => {
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-    
-    oscillator.frequency.setValueAtTime(freq, ctx.currentTime);
-    oscillator.type = 'sine';
-    
-    const startTime = ctx.currentTime + (index * duration * 0.7);
-    gainNode.gain.setValueAtTime(0.3, startTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-    
-    oscillator.start(startTime);
-    oscillator.stop(startTime + duration);
+  // Audio event listeners
+  appState.audioElement.addEventListener('loadedmetadata', () => {
+    console.log('✅ Audio metadata loaded');
+    console.log(`Duration: ${appState.audioElement.duration} seconds`);
+    appState.audioLoaded = true;
+    updateControlButtonState();
   });
+  
+  appState.audioElement.addEventListener('canplay', () => {
+    console.log('✅ Audio can start playing');
+  });
+  
+  appState.audioElement.addEventListener('canplaythrough', () => {
+    console.log('✅ Audio can play through without buffering');
+  });
+  
+  appState.audioElement.addEventListener('error', (e) => {
+    console.error('❌ Audio error:', e);
+    appState.audioError = true;
+    appState.audioLoaded = false;
+    updateControlButtonState();
+    showAudioError();
+  });
+  
+  appState.audioElement.addEventListener('progress', () => {
+    const buffered = appState.audioElement.buffered;
+    if (buffered.length > 0) {
+      const bufferedEnd = buffered.end(buffered.length - 1);
+      const duration = appState.audioElement.duration;
+      if (duration > 0) {
+        const percent = (bufferedEnd / duration) * 100;
+        console.log(`🎵 Buffered: ${percent.toFixed(1)}%`);
+      }
+    }
+  });
+  
+  appState.audioElement.addEventListener('timeupdate', handleAudioTimeUpdate);
+  
+  appState.audioElement.addEventListener('ended', () => {
+    console.log('🎵 Audio playback ended');
+    completeTimer();
+  });
+  
+  // Start loading the audio file
+  appState.audioElement.load();
+}
+
+function handleAudioTimeUpdate() {
+  if (!appState.isRunning) return;
+  
+  // Sync elapsed time with audio position
+  const audioTime = appState.audioElement.currentTime;
+  appState.elapsedTime = Math.floor(audioTime);
+  
+  // Check for interval changes
+  checkIntervalChange();
+  
+  // Update display
+  updateDisplay();
+  
+  // Check if completed
+  if (appState.elapsedTime >= TIMER_CONFIG.TOTAL_DURATION) {
+    completeTimer();
+  }
+}
+
+function showAudioError() {
+  statusText.textContent = 'Audio file not found';
+  statusText.style.color = '#FF0000';
+  controlButton.textContent = 'ERROR';
+  controlButton.disabled = true;
+}
+
+function updateControlButtonState() {
+  if (appState.audioError) {
+    controlButton.disabled = true;
+    controlButton.textContent = 'ERROR';
+  } else if (!appState.audioLoaded) {
+    controlButton.disabled = true;
+    controlButton.textContent = 'LOADING...';
+  } else {
+    controlButton.disabled = false;
+    controlButton.textContent = appState.isRunning ? 'STOP' : 'START';
+  }
 }
 
 // Timer functions
@@ -295,9 +209,13 @@ async function toggleTimer() {
 async function startTimer() {
   console.log('▶️ Starting timer...');
   
-  const now = Date.now();
+  if (!appState.audioLoaded || appState.audioError) {
+    console.error('Cannot start: Audio not ready');
+    return;
+  }
+  
   appState.isRunning = true;
-  appState.startTime = now;
+  appState.startTime = Date.now();
   appState.elapsedTime = 0;
   appState.lastInterval = -1;
   appState.currentInterval = -1;
@@ -306,21 +224,24 @@ async function startTimer() {
   // Request wake lock if available
   await requestWakeLock();
   
-  // Start timer interval
-  startTimerInterval();
-  
-  // Schedule notifications as backup
-  await scheduleNotifications();
+  // Start audio playback
+  try {
+    appState.audioElement.currentTime = 0;
+    await appState.audioElement.play();
+    console.log('🎵 Audio playback started');
+  } catch (error) {
+    console.error('Failed to start audio:', error);
+    await stopTimer();
+    return;
+  }
   
   // Notify service worker if available
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({
       type: 'START_TIMER',
-      startTime: now
+      startTime: appState.startTime
     });
   }
-  
-  // Permissions are now handled at page load
   
   updateDisplay();
   console.log('▶️ Timer started');
@@ -336,17 +257,15 @@ async function stopTimer() {
   appState.currentInterval = -1;
   appState.isCompleted = false;
   
-  // Clear interval
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
+  // Stop audio playback
+  if (appState.audioElement) {
+    appState.audioElement.pause();
+    appState.audioElement.currentTime = 0;
+    console.log('🎵 Audio stopped');
   }
   
   // Release wake lock
   await releaseWakeLock();
-  
-  // Cancel notifications
-  await cancelNotifications();
   
   // Notify service worker
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
@@ -359,48 +278,18 @@ async function stopTimer() {
   console.log('⏹️ Timer stopped');
 }
 
-function startTimerInterval() {
-  if (timerInterval) return;
-  
-  console.log('⏱️ Starting timer interval');
-  timerInterval = setInterval(() => {
-    if (!appState.isRunning) return;
-    
-    const now = Date.now();
-    appState.elapsedTime = Math.floor((now - appState.startTime) / 1000);
-    console.log('⏱️ Timer tick: elapsed=', appState.elapsedTime);
-    
-    if (appState.elapsedTime >= TIMER_CONFIG.TOTAL_DURATION) {
-      completeTimer();
-      return;
-    }
-    
-    checkIntervalChange();
-    updateDisplay();
-    
-  }, 1000);
-}
-
 function checkIntervalChange() {
   const currentInterval = getCurrentInterval(appState.elapsedTime);
   
   if (currentInterval !== appState.lastInterval && currentInterval < TIMER_CONFIG.TOTAL_INTERVALS) {
     const isFast = isFastInterval(currentInterval);
     
-    // Play sound and vibrate for interval changes (except first)
+    // Vibrate for interval changes (except first)
     if (appState.lastInterval !== -1) {
-      const soundType = isFast ? 'bell' : 'gong';
-      playSound(soundType);
-      
       // Vibrate if supported
       if ('vibrate' in navigator) {
         const pattern = isFast ? [100, 50, 100] : [200];
         navigator.vibrate(pattern);
-      }
-      
-      // Show notification if permissions granted
-      if (appState.permissionsGranted) {
-        showIntervalNotification(isFast, currentInterval);
       }
       
       console.log(`🚶 Interval ${currentInterval}: ${isFast ? 'Fast Walk' : 'Slow Walk'}`);
@@ -411,50 +300,16 @@ function checkIntervalChange() {
   }
 }
 
-function showIntervalNotification(isFast, intervalIndex) {
-  if (!appState.permissionsGranted) return;
-  
-  const setNumber = Math.floor(intervalIndex / 2) + 1;
-  const title = isFast ? "Fast Walk 🏃" : "Slow Walk 🚶";
-  const body = `Set ${setNumber} of ${TIMER_CONFIG.TOTAL_SETS}`;
-  
-  try {
-    new Notification(title, {
-      body,
-      icon: '/icon-512x512.png',
-      tag: 'interval-change',
-      requireInteraction: false
-    });
-  } catch (error) {
-    console.log('Notification failed:', error);
-  }
-}
-
-async function scheduleNotifications() {
-  // For PWA, we'll use immediate notifications instead of scheduling
-  // This is a simplified version - full scheduling would require service worker
-  console.log('📱 Notifications will be shown during intervals');
-}
-
-async function cancelNotifications() {
-  // Cancel any pending notifications
-  console.log('📱 Notifications cancelled');
-}
-
 async function completeTimer() {
   console.log('🎉 Timer completing...');
   
   appState.isRunning = false;
   appState.isCompleted = true;
   
-  // Clear interval
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
+  // Stop audio
+  if (appState.audioElement) {
+    appState.audioElement.pause();
   }
-  
-  // Play completion sound
-  playSound('fanfare');
   
   // Vibrate
   if ('vibrate' in navigator) {
@@ -462,12 +317,12 @@ async function completeTimer() {
   }
   
   // Show completion notification
-  if (appState.permissionsGranted) {
+  if ('Notification' in window && Notification.permission === 'granted') {
     new Notification('KaizenWalk Complete! 🎉', {
       body: 'Congratulations! You completed your 30-minute workout.',
       icon: '/icon-512x512.png',
       tag: 'completion',
-      requireInteraction: true
+      requireInteraction: false
     });
   }
   
@@ -526,24 +381,16 @@ function handleServiceWorkerMessage(event) {
 // Handle page visibility changes
 function handleVisibilityChange() {
   if (document.hidden && appState.isRunning) {
-    // Page is hidden, background timer in service worker takes over
-    console.log('📱 Page hidden - background timer active');
+    // Page is hidden, audio continues playing
+    console.log('📱 Page hidden - audio continues in background');
   } else if (!document.hidden && appState.isRunning) {
-    // Page is visible, sync with service worker
-    console.log('📱 Page visible - syncing timer state');
+    // Page is visible, ensure display is synced with audio
+    console.log('📱 Page visible - syncing display with audio');
     
-    // Recalculate elapsed time
-    if (appState.startTime) {
-      const now = Date.now();
-      const newElapsedTime = Math.floor((now - appState.startTime) / 1000);
-      
-      if (newElapsedTime >= TIMER_CONFIG.TOTAL_DURATION) {
-        completeTimer();
-      } else {
-        appState.elapsedTime = newElapsedTime;
-        checkIntervalChange();
-        updateDisplay();
-      }
+    if (appState.audioElement && !appState.audioElement.paused) {
+      appState.elapsedTime = Math.floor(appState.audioElement.currentTime);
+      checkIntervalChange();
+      updateDisplay();
     }
   }
 }
@@ -558,6 +405,10 @@ function updateDisplay() {
 }
 
 function updateStatusText() {
+  if (appState.audioError) {
+    return; // Keep error message
+  }
+  
   if (appState.isCompleted) {
     statusText.textContent = 'Complete!';
     statusText.style.color = COLORS.primary;
@@ -591,7 +442,6 @@ function updateSetInfo() {
 
 function updateTimeDisplay() {
   const totalTimeRemaining = getTotalTimeRemaining(appState.elapsedTime);
-  console.log('⏰ Time update: elapsed=', appState.elapsedTime, 'remaining=', totalTimeRemaining);
   timeText.textContent = formatTime(totalTimeRemaining);
   
   // Color and pulse effect
@@ -633,18 +483,10 @@ function updateProgressCircle() {
 }
 
 function updateControlButton() {
-  if (appState.isRunning) {
-    controlButton.textContent = 'STOP';
-    controlButton.className = 'button stop';
-  } else {
-    controlButton.textContent = 'START';
-    controlButton.className = 'button';
-  }
+  updateControlButtonState();
 }
 
 // Global functions for HTML onclick
-window.requestPermissions = requestPermissions;
-window.denyPermissions = denyPermissions;
 window.handleButtonClick = async function() {
   console.log('🔄 Button clicked via onclick!');
   await toggleTimer();

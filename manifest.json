@@ -1,7 +1,7 @@
 {
   "name": "KaizenWalk",
   "short_name": "KaizenWalk",
-  "description": "Japanese interval walking timer",
+  "description": "Japanese interval walking timer with MP3 audio",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
@@ -11,7 +11,13 @@
     {
       "src": "icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "categories": ["health", "fitness", "sports"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "scope": "/",
+  "prefer_related_applications": false
 }

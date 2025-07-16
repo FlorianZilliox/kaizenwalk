@@ -73,7 +73,6 @@ body {
 .controls {
     padding: 20px 40px;
     text-align: center;
-    margin-bottom: max(20px, env(safe-area-inset-bottom, 0px));
 }
 
 .button {
@@ -87,12 +86,17 @@ body {
     letter-spacing: 1px;
     min-width: 200px;
     cursor: pointer;
-    transition: transform 0.1s ease;
+    transition: transform 0.1s ease, opacity 0.2s ease;
     box-shadow: 0 4px 8px rgba(0, 255, 255, 0.3);
 }
 
-.button:active {
+.button:active:not(:disabled) {
     transform: scale(0.95);
+}
+
+.button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .button.stop {
@@ -114,107 +118,48 @@ body {
     display: none;
 }
 
-.permission-modal {
+.audio-status {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.9);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.permission-content {
-    background: #1a1a1a;
-    padding: 30px;
-    border-radius: 15px;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 15px;
+    font-size: 14px;
+    color: #999;
     text-align: center;
-    max-width: 300px;
-    margin: 20px;
+    display: none;
+    backdrop-filter: blur(10px);
 }
 
-.permission-content h2 {
-    margin-bottom: 15px;
+.audio-status.loading {
+    display: block;
+    border-color: #00FFFF;
     color: #00FFFF;
 }
 
-.permission-content p {
-    margin-bottom: 20px;
-    color: #ccc;
-    line-height: 1.4;
+.audio-status.error {
+    display: block;
+    border-color: #FF0000;
+    color: #FF0000;
 }
 
-.permission-buttons {
-    display: flex;
-    gap: 10px;
+.buffer-progress {
+    width: 100%;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    margin-top: 10px;
+    overflow: hidden;
 }
 
-.permission-btn {
-    flex: 1;
-    padding: 12px 20px;
-    border: none;
-    border-radius: 8px;
-    font-weight: bold;
-    cursor: pointer;
-}
-
-.permission-btn.allow {
-    background: #00FFFF;
-    color: #000;
-}
-
-.permission-btn.deny {
-    background: #666;
-    color: #fff;
-}
-
-.permission-close {
-    position: absolute;
-    top: 10px;
-    right: 15px;
-    color: #999;
-    cursor: pointer;
-    font-size: 24px;
-    font-weight: bold;
-    line-height: 1;
-}
-
-.permission-close:hover {
-    color: #fff;
-}
-
-/* Debug panel */
-.debug-panel {
-    position: fixed;
-    bottom: 10px;
-    left: 10px;
-    right: 10px;
-    background: rgba(0, 0, 0, 0.9);
-    color: #00ff00;
-    padding: 10px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-family: monospace;
-    max-height: 150px;
-    overflow-y: auto;
-    z-index: 999;
-    border: 1px solid #333;
-}
-
-.debug-panel.hidden {
-    display: none;
-}
-
-.debug-close {
-    position: absolute;
-    top: 5px;
-    right: 10px;
-    color: #ff0000;
-    cursor: pointer;
-    font-weight: bold;
+.buffer-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00FFFF, #FF00FF);
+    width: 0%;
+    transition: width 0.3s ease;
 }
 
 /* Support pour les appareils avec notch */
@@ -226,5 +171,40 @@ body {
     
     .controls {
         margin-bottom: max(20px, env(safe-area-inset-bottom));
+    }
+    
+    .audio-status {
+        bottom: max(20px, env(safe-area-inset-bottom));
+    }
+}
+
+/* Media queries pour petits écrans */
+@media (max-height: 600px) {
+    .status-text {
+        font-size: 28px;
+    }
+    
+    .set-info {
+        font-size: 16px;
+    }
+    
+    .time-text {
+        font-size: 40px;
+    }
+    
+    .progress-ring {
+        width: 220px;
+        height: 220px;
+    }
+    
+    .progress-ring svg {
+        width: 220px;
+        height: 220px;
+    }
+    
+    .progress-ring circle {
+        r: 106;
+        cx: 110;
+        cy: 110;
     }
 }
