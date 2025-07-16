@@ -67,6 +67,8 @@ let appState = {
   isCompleted: false,
   wakeLock: null,
   audioElement: null,
+  audioContext: null,
+  audioSource: null, // Track if MediaElementSource is connected
   audioLoaded: false,
   audioError: false,
   loadingProgress: 0
@@ -100,6 +102,26 @@ function initializeApp() {
   // Handle page visibility changes
   document.addEventListener('visibilitychange', handleVisibilityChange);
   
+  // Create a silent audio context to enable audio in silent mode on iOS
+  // This technique allows PWAs to play audio even when the device is in silent mode,
+  // just like native apps and sites like France Inter
+  if (window.AudioContext || window.webkitAudioContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioContext = new AudioContext();
+    
+    // Create a silent buffer to "unlock" audio
+    const buffer = audioContext.createBuffer(1, 1, 22050);
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start(0);
+    
+    // This helps with iOS audio policies
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+  }
+  
   updateDisplay();
 }
 
@@ -111,9 +133,40 @@ function initializeAudio() {
   timeText.textContent = 'Loading';
   timeText.classList.add('loading-pulse');
   
+  // Clean up previous audio element if exists
+  if (appState.audioElement) {
+    appState.audioElement.pause();
+    appState.audioElement.src = '';
+    appState.audioElement = null;
+    appState.audioSource = false; // Reset source tracking
+  }
+  
+  // Clean up previous audio context if exists
+  if (appState.audioContext) {
+    try {
+      appState.audioContext.close();
+      appState.audioContext = null;
+      appState.audioSource = false;
+    } catch (error) {
+      console.error('Error closing previous audio context:', error);
+    }
+  }
+  
   // Create audio element
   appState.audioElement = new Audio();
   appState.audioElement.preload = 'metadata'; // Start with metadata only
+  
+  // IMPORTANT: Set playsinline for iOS
+  appState.audioElement.setAttribute('playsinline', 'true');
+  
+  // Set crossOrigin for Cloudinary
+  appState.audioElement.crossOrigin = 'anonymous';
+  
+  // CRITICAL for iOS: Enable audio in silent mode
+  // This is what allows sites like France Inter to play in silent mode
+  appState.audioElement.setAttribute('webkit-playsinline', 'true');
+  appState.audioElement.setAttribute('x-webkit-airplay', 'allow');
+  
   appState.audioElement.src = TIMER_CONFIG.AUDIO_FILE;
   
   // Audio event listeners
@@ -277,13 +330,55 @@ async function startTimer() {
   // Request wake lock if available
   await requestWakeLock();
   
-  // Start audio playback
+  // Start audio playback with better error handling
   try {
+    // Reset audio to start
     appState.audioElement.currentTime = 0;
-    await appState.audioElement.play();
-    console.log('🎵 Audio playback started');
+    
+    // For iOS: Create or reuse Web Audio API connection to enable silent mode playback
+    if (window.AudioContext || window.webkitAudioContext) {
+      // Create context if needed
+      if (!appState.audioContext || appState.audioContext.state === 'closed') {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        appState.audioContext = new AudioContext();
+        appState.audioSource = false; // Reset source tracking
+      }
+      
+      // Connect audio element to context if not already connected
+      if (!appState.audioSource && appState.audioContext) {
+        try {
+          const source = appState.audioContext.createMediaElementSource(appState.audioElement);
+          source.connect(appState.audioContext.destination);
+          appState.audioSource = true; // Mark as connected
+          console.log('🔊 Audio connected to Web Audio API');
+        } catch (error) {
+          console.warn('Audio already connected to context:', error);
+        }
+      }
+      
+      // Resume context if suspended
+      if (appState.audioContext.state === 'suspended') {
+        await appState.audioContext.resume();
+      }
+    }
+    
+    // Attempt to play with promise handling
+    const playPromise = appState.audioElement.play();
+    
+    if (playPromise !== undefined) {
+      await playPromise;
+      console.log('🎵 Audio playback started successfully');
+    }
   } catch (error) {
     console.error('Failed to start audio:', error);
+    
+    // Try to reinitialize audio if play fails
+    if (error.name === 'NotAllowedError') {
+      alert('Please tap the button again to start audio playback');
+    } else if (error.name === 'NotSupportedError') {
+      alert('Audio playback error. Please refresh the page.');
+    }
+    
     await stopTimer();
     return;
   }
@@ -315,6 +410,16 @@ async function stopTimer() {
     appState.audioElement.pause();
     appState.audioElement.currentTime = 0;
     console.log('🎵 Audio stopped');
+  }
+  
+  // Suspend audio context instead of closing (keep for reuse)
+  if (appState.audioContext && appState.audioContext.state === 'running') {
+    try {
+      await appState.audioContext.suspend();
+      console.log('🔇 Audio context suspended');
+    } catch (error) {
+      console.error('Error suspending audio context:', error);
+    }
   }
   
   // Release wake lock
@@ -362,6 +467,16 @@ async function completeTimer() {
   // Stop audio
   if (appState.audioElement) {
     appState.audioElement.pause();
+  }
+  
+  // Suspend audio context instead of closing
+  if (appState.audioContext && appState.audioContext.state === 'running') {
+    try {
+      await appState.audioContext.suspend();
+      console.log('🔇 Audio context suspended');
+    } catch (error) {
+      console.error('Error suspending audio context:', error);
+    }
   }
   
   // Vibrate
@@ -560,7 +675,57 @@ function updateControlButton() {
 // Global functions for HTML onclick
 window.handleButtonClick = async function() {
   console.log('🔄 Button clicked via onclick!');
+  
+  // If audio error or not loaded, try to reinitialize
+  if (appState.audioError || (!appState.audioLoaded && !appState.isRunning)) {
+    console.log('🔄 Reinitializing audio...');
+    initializeAudio();
+    return;
+  }
+  
   await toggleTimer();
+};
+
+// Force reload audio (useful for debugging)
+window.reloadAudio = function() {
+  console.log('🔄 Force reloading audio...');
+  appState.audioLoaded = false;
+  appState.audioError = false;
+  appState.loadingProgress = 0;
+  initializeAudio();
+};
+
+// Clear audio cache and reload
+window.clearAudioCache = async function() {
+  console.log('🗑️ Clearing audio cache...');
+  
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'CLEAR_AUDIO_CACHE'
+    });
+  }
+  
+  // Wait a bit then reload audio
+  setTimeout(() => {
+    window.reloadAudio();
+  }, 500);
+};
+
+// Force hard reload of the entire app
+window.hardReload = function() {
+  console.log('🔄 Performing hard reload...');
+  
+  // Clear all caches
+  if ('caches' in window) {
+    caches.keys().then(names => {
+      names.forEach(name => {
+        caches.delete(name);
+      });
+    });
+  }
+  
+  // Reload page without cache
+  location.reload(true);
 };
 
 // Test function accessible from console

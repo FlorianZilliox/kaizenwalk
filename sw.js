@@ -1,5 +1,5 @@
-const CACHE_NAME = 'kaizenwalk-mp3-v2';
-const AUDIO_CACHE_NAME = 'kaizenwalk-audio-v2';
+const CACHE_NAME = 'kaizenwalk-mp3-v3';
+const AUDIO_CACHE_NAME = 'kaizenwalk-audio-v3';
 
 const urlsToCache = [
   '/',
@@ -9,6 +9,9 @@ const urlsToCache = [
   '/manifest.json',
   '/icon-512x512.png'
 ];
+
+// Audio URL constant
+const AUDIO_URL = 'https://res.cloudinary.com/dammwxtoy/video/upload/v1752655931/kaizenwalk_30min_zhojtp.mp3';
 
 // Timer state
 let timerState = {
@@ -53,7 +56,9 @@ self.addEventListener('activate', event => {
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME && cacheName !== AUDIO_CACHE_NAME) {
+          // Delete old caches
+          if ((cacheName.startsWith('kaizenwalk-') && cacheName !== CACHE_NAME && cacheName !== AUDIO_CACHE_NAME) ||
+              (cacheName.includes('audio') && cacheName !== AUDIO_CACHE_NAME)) {
             console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
@@ -68,8 +73,8 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   
-  // Special handling for MP3 file with range requests support
-  if (url.href.includes('cloudinary.com') && url.href.includes('kaizenwalk_30min')) {
+  // Special handling for MP3 file
+  if (url.href === AUDIO_URL || url.href.includes('kaizenwalk_30min')) {
     event.respondWith(handleAudioRequest(event.request));
     return;
   }
@@ -110,58 +115,85 @@ self.addEventListener('fetch', event => {
   );
 });
 
-// Handle audio file requests with range support
+// Handle audio file requests with improved caching
 async function handleAudioRequest(request) {
   const cache = await caches.open(AUDIO_CACHE_NAME);
   
-  // For Cloudinary URLs, we need to handle CORS
-  const requestOptions = {
-    mode: 'cors',
-    credentials: 'omit'
-  };
+  // Check if it's a range request
+  const isRangeRequest = request.headers.get('range') !== null;
   
-  // Check if we have a cached response
-  const cachedResponse = await cache.match(request, { ignoreSearch: true });
-  
-  // If no cache or it's a range request, fetch from network
-  if (!cachedResponse || request.headers.get('range')) {
+  // For range requests, always go to network (required for audio seeking)
+  if (isRangeRequest) {
     try {
-      console.log('Fetching audio from network...');
-      
-      // Create a new request with CORS mode for Cloudinary
-      const modifiedRequest = new Request(request.url, {
-        ...requestOptions,
-        headers: request.headers
-      });
-      
-      const networkResponse = await fetch(modifiedRequest);
-      
-      // Cache the response if it's the full file (not a range request)
-      if (!request.headers.get('range') && networkResponse.status === 200) {
-        console.log('Caching full audio file...');
-        cache.put(request, networkResponse.clone());
-      }
-      
+      console.log('Handling range request for audio');
+      const networkResponse = await fetch(request.clone());
       return networkResponse;
     } catch (error) {
-      console.error('Network fetch failed:', error);
-      
-      // If we have a cached version and network fails, return it
-      if (cachedResponse) {
-        console.log('Returning cached audio file');
-        return cachedResponse;
-      }
-      
-      // Otherwise return error
-      return new Response('Audio file not available offline', {
+      console.error('Range request failed:', error);
+      return new Response('Range request failed', {
         status: 503,
         statusText: 'Service Unavailable'
       });
     }
   }
   
-  console.log('Returning cached audio file');
-  return cachedResponse;
+  // For normal requests, try cache first
+  try {
+    const cachedResponse = await cache.match(AUDIO_URL, { ignoreSearch: true });
+    
+    if (cachedResponse) {
+      console.log('Returning cached audio file');
+      
+      // Verify cached response is valid
+      const blob = await cachedResponse.clone().blob();
+      if (blob.size > 0) {
+        return cachedResponse;
+      } else {
+        console.warn('Cached audio file is empty, fetching from network');
+        await cache.delete(AUDIO_URL);
+      }
+    }
+    
+    // Fetch from network
+    console.log('Fetching audio from network...');
+    const networkResponse = await fetch(AUDIO_URL, {
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-cache' // Force fresh fetch
+    });
+    
+    if (networkResponse.ok) {
+      // Cache the response
+      console.log('Caching audio file...');
+      await cache.put(AUDIO_URL, networkResponse.clone());
+      
+      // Notify clients that audio is cached
+      const clients = await self.clients.matchAll();
+      clients.forEach(client => {
+        client.postMessage({
+          type: 'AUDIO_CACHED',
+          cached: true
+        });
+      });
+    }
+    
+    return networkResponse;
+    
+  } catch (error) {
+    console.error('Audio fetch error:', error);
+    
+    // Last resort: try to get from cache even if it might be partial
+    const anyCachedResponse = await cache.match(AUDIO_URL, { ignoreSearch: true });
+    if (anyCachedResponse) {
+      console.log('Returning possibly partial cached audio');
+      return anyCachedResponse;
+    }
+    
+    return new Response('Audio not available', {
+      status: 503,
+      statusText: 'Service Unavailable'
+    });
+  }
 }
 
 // Message handling from main thread
@@ -178,30 +210,58 @@ self.addEventListener('message', event => {
     case 'SYNC_STATE':
       timerState = { ...timerState, ...data };
       break;
+    case 'CLEAR_AUDIO_CACHE':
+      clearAudioCache();
+      break;
     case 'PRELOAD_AUDIO':
       preloadAudioFile();
       break;
   }
 });
 
+// Clear audio cache (useful for debugging)
+async function clearAudioCache() {
+  try {
+    const cache = await caches.open(AUDIO_CACHE_NAME);
+    await cache.delete(AUDIO_URL);
+    console.log('Audio cache cleared');
+    
+    // Notify clients
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+      client.postMessage({
+        type: 'AUDIO_CACHE_CLEARED'
+      });
+    });
+  } catch (error) {
+    console.error('Failed to clear audio cache:', error);
+  }
+}
+
 // Preload audio file into cache
 async function preloadAudioFile() {
   try {
     const cache = await caches.open(AUDIO_CACHE_NAME);
-    const audioUrl = 'https://res.cloudinary.com/dammwxtoy/video/upload/v1752655931/kaizenwalk_30min_zhojtp.mp3';
     
     // Check if already cached
-    const existing = await cache.match(audioUrl);
+    const existing = await cache.match(AUDIO_URL);
     if (existing) {
-      console.log('Audio file already cached');
-      return;
+      const blob = await existing.clone().blob();
+      if (blob.size > 0) {
+        console.log('Audio file already cached and valid');
+        return;
+      }
     }
     
     console.log('Preloading audio file...');
-    const response = await fetch(audioUrl);
+    const response = await fetch(AUDIO_URL, {
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-cache'
+    });
     
     if (response.ok) {
-      await cache.put(audioUrl, response);
+      await cache.put(AUDIO_URL, response);
       console.log('Audio file cached successfully');
       
       // Notify all clients
