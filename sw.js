@@ -1,5 +1,5 @@
-const CACHE_NAME = 'kaizenwalk-mp3-v1';
-const AUDIO_CACHE_NAME = 'kaizenwalk-audio-v1';
+const CACHE_NAME = 'kaizenwalk-mp3-v2';
+const AUDIO_CACHE_NAME = 'kaizenwalk-audio-v2';
 
 const urlsToCache = [
   '/',
@@ -69,7 +69,7 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   
   // Special handling for MP3 file with range requests support
-  if (url.pathname.includes('kaizenwalk_30min.mp3')) {
+  if (url.href.includes('cloudinary.com') && url.href.includes('kaizenwalk_30min')) {
     event.respondWith(handleAudioRequest(event.request));
     return;
   }
@@ -114,6 +114,12 @@ self.addEventListener('fetch', event => {
 async function handleAudioRequest(request) {
   const cache = await caches.open(AUDIO_CACHE_NAME);
   
+  // For Cloudinary URLs, we need to handle CORS
+  const requestOptions = {
+    mode: 'cors',
+    credentials: 'omit'
+  };
+  
   // Check if we have a cached response
   const cachedResponse = await cache.match(request, { ignoreSearch: true });
   
@@ -121,7 +127,14 @@ async function handleAudioRequest(request) {
   if (!cachedResponse || request.headers.get('range')) {
     try {
       console.log('Fetching audio from network...');
-      const networkResponse = await fetch(request);
+      
+      // Create a new request with CORS mode for Cloudinary
+      const modifiedRequest = new Request(request.url, {
+        ...requestOptions,
+        headers: request.headers
+      });
+      
+      const networkResponse = await fetch(modifiedRequest);
       
       // Cache the response if it's the full file (not a range request)
       if (!request.headers.get('range') && networkResponse.status === 200) {
@@ -175,7 +188,7 @@ self.addEventListener('message', event => {
 async function preloadAudioFile() {
   try {
     const cache = await caches.open(AUDIO_CACHE_NAME);
-    const audioUrl = '/kaizenwalk_30min.mp3';
+    const audioUrl = 'https://res.cloudinary.com/dammwxtoy/video/upload/v1752655931/kaizenwalk_30min_zhojtp.mp3';
     
     // Check if already cached
     const existing = await cache.match(audioUrl);

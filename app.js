@@ -4,7 +4,7 @@ const TIMER_CONFIG = {
   INTERVAL_DURATION: 180, // 3 minutes in seconds
   TOTAL_INTERVALS: 10,
   TOTAL_SETS: 5,
-  AUDIO_FILE: 'kaizenwalk_30min.mp3' // Audio file path
+  AUDIO_FILE: 'https://res.cloudinary.com/dammwxtoy/video/upload/v1752655931/kaizenwalk_30min_zhojtp.mp3' // Audio file on Cloudinary
 };
 
 // Colors
@@ -77,6 +77,9 @@ const setInfo = document.getElementById('setInfo');
 const timeText = document.getElementById('timeText');
 const progressCircle = document.getElementById('progressCircle');
 const controlButton = document.getElementById('controlButton');
+const audioStatus = document.getElementById('audioStatus');
+const bufferFill = document.getElementById('bufferFill');
+const bufferText = document.getElementById('bufferText');
 
 let timerInterval = null;
 
@@ -104,6 +107,12 @@ function initializeApp() {
 
 function initializeAudio() {
   console.log('🎵 Initializing audio...');
+  
+  // Show loading status
+  if (audioStatus) {
+    audioStatus.style.display = 'block';
+    audioStatus.classList.add('loading');
+  }
   
   // Create audio element
   appState.audioElement = new Audio();
@@ -142,6 +151,22 @@ function initializeAudio() {
       if (duration > 0) {
         const percent = (bufferedEnd / duration) * 100;
         console.log(`🎵 Buffered: ${percent.toFixed(1)}%`);
+        
+        // Update buffer display
+        if (bufferFill && bufferText) {
+          bufferFill.style.width = `${percent}%`;
+          
+          if (percent < 100) {
+            audioStatus.classList.add('loading');
+            bufferText.textContent = `Loading: ${percent.toFixed(0)}%`;
+          } else {
+            audioStatus.classList.remove('loading');
+            bufferText.textContent = 'Audio ready (cached for offline use)';
+            setTimeout(() => {
+              audioStatus.style.display = 'none';
+            }, 3000);
+          }
+        }
       }
     }
   });
@@ -181,6 +206,13 @@ function showAudioError() {
   statusText.style.color = '#FF0000';
   controlButton.textContent = 'ERROR';
   controlButton.disabled = true;
+  
+  if (audioStatus && bufferText) {
+    audioStatus.classList.remove('loading');
+    audioStatus.classList.add('error');
+    bufferText.textContent = 'Failed to load audio file';
+    bufferFill.style.width = '0%';
+  }
 }
 
 function updateControlButtonState() {

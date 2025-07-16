@@ -52,7 +52,12 @@
             <button class="button" id="controlButton" onclick="handleButtonClick()">LOADING...</button>
         </div>
         
-        <div class="audio-status" id="audioStatus"></div>
+        <div class="audio-status" id="audioStatus">
+            <div class="buffer-progress">
+                <div class="buffer-fill" id="bufferFill"></div>
+            </div>
+            <span id="bufferText">Loading audio...</span>
+        </div>
     </div>
 
     <script src="app.js"></script>
